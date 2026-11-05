@@ -1,3 +1,8 @@
+import { ClubPicker } from "./ClubPicker";
+import { CareerHub } from "./CareerHub";
+import { beginNextCareerMatch, nextCareerMatch } from "./calendar";
+import { playerPositions } from "./player-roles";
+import { PhotoCredits } from "./PhotoCredits";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -18,7 +23,7 @@ import {
 import "./style.css";
 import { exportCareer } from "./export";
 import { migrateGame, seasonComplete, completeSeason } from "./career";
-import { beginLive, tickLive } from "./live";
+import { beginLive, tickLive, resolveVAR } from "./live";
 import { LineupView } from "./LineupView";
 import { LiveView } from "./LiveView";
 import { EuropeView } from "./EuropeView";
@@ -37,8 +42,10 @@ const money = (n: number) =>
 const initialDatabase = createGame("", "", 0, "", 2025, 1);
 const tabs = [
   "Главная",
+  "Карьера",
   "Клуб",
   "Матчи",
+  "Центр матча",
   "Трансферы",
   "Турниры",
   "Статистика",
@@ -51,7 +58,7 @@ const read = readSlot;
 function App() {
   const [slot, setSlot] = useState(1);
   const [g, setG] = useState<Game | null>(() => read(1));
-  const [tab, setTab] = useState("Главная");
+  const [tab, setTab] = useState(g?.live ? "Центр матча" : "Главная");
   const [league, setLeague] = useState(0);
   const [msg, setMsg] = useState("");
   const [name, setName] = useState("Alex Morgan");
@@ -59,6 +66,9 @@ function App() {
   const [club, setClub] = useState(0);
   const [difficulty, setDifficulty] = useState("Обычно");
   const [season, setSeason] = useState(2025);
+  const [careerMode, setCareerMode] = useState<"calendar" | "match">(
+    "calendar",
+  );
   const [query, setQuery] = useState("");
   const [pos, setPos] = useState("");
   const [maxAge, setMaxAge] = useState(40);
@@ -72,7 +82,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   function persist(next: Game, replace = false) {
     try {
-      saveSlot(slot, next, replace);
+      saveSlot(slot, next, replace || (!!next.live && tab !== "Центр матча"));
       setMsg("Карьера сохранена");
     } catch {
       setMsg("Не удалось сохранить: хранилище заполнено. Экспортируйте JSON.");
@@ -85,8 +95,17 @@ function App() {
       fn(next);
       setG(next);
       persist(next);
+      if (
+        next.live &&
+        (!g.live ||
+          next.live.matchId !== g.live.matchId ||
+          next.live.competition !== g.live.competition)
+      )
+        setTab("Центр матча");
+      return true;
     } catch (e) {
       setMsg((e as Error).message);
+      return false;
     }
   }
   const matchClock = useRef<{ key: string; at: number; minute: number } | null>(
@@ -94,7 +113,7 @@ function App() {
   );
   useEffect(() => {
     const live = g?.live;
-    if (!live || live.status !== "playing") {
+    if (!live || live.status !== "playing" || tab !== "Центр матча") {
       matchClock.current = null;
       return;
     }
@@ -125,10 +144,26 @@ function App() {
       delay,
     );
     return () => clearTimeout(timer);
-  }, [g, slot]);
+  }, [g, slot, tab]);
+  useEffect(() => {
+    if (g?.live?.status !== "review" || tab !== "Центр матча") return;
+    const timer = setTimeout(() => act(resolveVAR), 1400);
+    return () => clearTimeout(timer);
+  }, [g?.live?.status, g?.live?.pendingVAR, tab]);
+  function navigate(t: string) {
+    if (g?.live?.status === "playing" && t !== "Центр матча")
+      act((x) => {
+        x.live!.status = "paused";
+      });
+    setTab(t);
+  }
+  function openMatch() {
+    if (act(beginNextCareerMatch)) setTab("Центр матча");
+  }
+
   function simulate(n: number, own = false) {
     if (own) {
-      act((x) => beginLive(x));
+      openMatch();
       return;
     }
     setBusy(true);
@@ -169,15 +204,15 @@ function App() {
               setWage(p.salary);
             }}
           >
-            <Photo src={p.photo} name={p.name} />
+            <Photo src={p.photo} name={p.name} real={p.real} />
             <span className={"ovr o" + (p.rating >= 80 ? "high" : "")}>
               {p.rating}
             </span>
             <span>
               <strong>{p.name}</strong>
               <small>
-                {p.pos} · {p.age} лет · {p.real ? "Реальный игрок" : "Академия"}{" "}
-                ·{" "}
+                {playerPositions(p).join(" / ")} · {p.age} лет ·{" "}
+                {p.real ? "Реальный игрок" : "Академия"} ·{" "}
                 {market
                   ? p.club === null
                     ? "Свободный агент"
@@ -212,16 +247,33 @@ function App() {
               <b>LEGACY</b>
             </span>
           </a>
-          <span className="eyebrow">CAREER SIMULATOR · БЕТА 0.2</span>
+          <span className="eyebrow">CAREER SIMULATOR · WEB UPDATE</span>
           <nav>
             {tabs.map((t, i) => (
               <button
                 key={t}
                 className={tab === t ? "active" : ""}
-                onClick={() => setTab(t)}
+                onClick={() => navigate(t)}
               >
                 <span>
-                  {["◈", "♜", "⚽", "⇄", "▤", "▥", "♛", "♟", "★", "⚙"][i]}
+                  {
+                    (
+                      {
+                        Главная: "◈",
+                        Карьера: "▦",
+                        Клуб: "♜",
+                        Матчи: "⚽",
+                        "Центр матча": "▶",
+                        Трансферы: "⇄",
+                        Турниры: "▤",
+                        Статистика: "▥",
+                        Награды: "♛",
+                        Тренер: "♟",
+                        "Зал славы": "★",
+                        Настройки: "⚙",
+                      } as Record<string, string>
+                    )[t]
+                  }
                 </span>
                 {t}
               </button>
@@ -296,19 +348,6 @@ function App() {
                       />
                     </label>
                     <label>
-                      Клуб
-                      <select
-                        value={club}
-                        onChange={(e) => setClub(+e.target.value)}
-                      >
-                        {preview.clubs.map((c) => (
-                          <option value={c.id} key={c.id}>
-                            {c.name} · {leagues[c.league]}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
                       Сложность
                       <select
                         value={difficulty}
@@ -347,6 +386,38 @@ function App() {
                       </select>
                     </label>
                   </div>
+                  <ClubPicker
+                    clubs={preview.clubs}
+                    value={club}
+                    onChange={setClub}
+                  />
+                  <fieldset className="mode-picker">
+                    <legend>Как вы хотите вести карьеру?</legend>
+                    <button
+                      className={careerMode === "calendar" ? "selected" : ""}
+                      aria-pressed={careerMode === "calendar"}
+                      onClick={() => setCareerMode("calendar")}
+                    >
+                      <span>▦</span>
+                      <b>Календарная карьера</b>
+                      <small>
+                        Самостоятельно проматывайте дни, недели и сезон. При
+                        желании откройте отдельный матч.
+                      </small>
+                    </button>
+                    <button
+                      className={careerMode === "match" ? "selected" : ""}
+                      aria-pressed={careerMode === "match"}
+                      onClick={() => setCareerMode("match")}
+                    >
+                      <span>▶</span>
+                      <b>Каждый матч</b>
+                      <small>
+                        Отдельный центр матча, живые события, VAR, перерыв и
+                        замены. Ваши игры не проматываются автоматически.
+                      </small>
+                    </button>
+                  </fieldset>
                   <button
                     className="primary"
                     onClick={() => {
@@ -366,7 +437,9 @@ function App() {
                         difficulty,
                         season,
                       );
+                      x.careerMode = careerMode;
                       setG(migrateGame(x));
+                      setTab("Карьера");
                       persist(x, true);
                     }}
                   >
@@ -396,6 +469,41 @@ function App() {
               </>
             ) : (
               <>
+                {tab === "Карьера" && (
+                  <CareerHub
+                    key={g.season}
+                    game={g}
+                    act={act}
+                    onPlay={openMatch}
+                    onAwards={() => setTab("Награды")}
+                  />
+                )}
+                {tab === "Центр матча" &&
+                  (g.live ? (
+                    <LiveView
+                      game={g}
+                      act={act}
+                      embedded
+                      onDone={() => setTab("Карьера")}
+                    />
+                  ) : (
+                    <section className="panel match-centre-intro">
+                      <span className="eyebrow">MATCHDAY CENTRE</span>
+                      <h1>Твой следующий матч</h1>
+                      <p>
+                        {nextCareerMatch(g)
+                          ? `${g.clubs[nextCareerMatch(g)!.match.home].name} — ${g.clubs[nextCareerMatch(g)!.match.away].name}`
+                          : "Матчи завершены"}
+                      </p>
+                      <button
+                        className="primary"
+                        disabled={!nextCareerMatch(g)}
+                        onClick={openMatch}
+                      >
+                        Выйти на матч →
+                      </button>
+                    </section>
+                  ))}
                 {tab === "Главная" && (
                   <>
                     <section className="hero">
@@ -759,13 +867,22 @@ function App() {
                       >
                         Матч клуба
                       </button>
-                      <button disabled={busy} onClick={() => simulate(1)}>
+                      <button
+                        disabled={busy || g.careerMode === "match"}
+                        onClick={() => simulate(1)}
+                      >
                         Следующий тур
                       </button>
-                      <button disabled={busy} onClick={() => simulate(5)}>
+                      <button
+                        disabled={busy || g.careerMode === "match"}
+                        onClick={() => simulate(5)}
+                      >
                         5 туров
                       </button>
-                      <button disabled={busy} onClick={() => simulate(38)}>
+                      <button
+                        disabled={busy || g.careerMode === "match"}
+                        onClick={() => simulate(38)}
+                      >
                         До конца сезона
                       </button>
                       {seasonComplete(g) && (
@@ -904,7 +1021,7 @@ function App() {
                               p.name
                                 .toLowerCase()
                                 .includes(query.toLowerCase()) &&
-                              (!pos || p.pos === pos) &&
+                              (!pos || playerPositions(p).includes(pos)) &&
                               p.age <= maxAge &&
                               p.rating >= minRating &&
                               p.value <= maxPrice * 1e6 &&
@@ -1224,6 +1341,7 @@ function App() {
                       Чтобы начать заново, выберите пустой слот. Импорт заменяет
                       текущий слот. Перед импортом сохраните резервную копию.
                     </p>
+                    <PhotoCredits />
                     <h3>Редактируемая база</h3>
                     <p className="muted">
                       Экспортируйте JSON, измените названия, характеристики и
@@ -1231,7 +1349,7 @@ function App() {
                       и связи. Игроки, рейтинги и финансы — модель симулятора, а
                       не официальные данные.
                     </p>
-                    <h3>Версия 0.2 · ЛЧ и награды</h3>
+                    <h3>Веб-обновление · Карьера и VAR</h3>
                     <p className="muted">
                       ЛЧ, награды, живые матчи и досье тренера доступны. Аренды,
                       смена клуба и остальные еврокубки пока не реализованы.
@@ -1247,7 +1365,7 @@ function App() {
           </div>
         </main>
       </div>
-      {g?.live && <LiveView game={g} act={act} />}
+
       {currentPlayer && g && (
         <div className="modal-backdrop" onClick={() => setSelected(null)}>
           <section className="modal panel" onClick={(e) => e.stopPropagation()}>
@@ -1259,14 +1377,15 @@ function App() {
               <Photo
                 src={currentPlayer.photo}
                 name={currentPlayer.name}
+                real={currentPlayer.real}
                 className="portrait"
               />
               <span className="ovr big">{currentPlayer.rating}</span>
               <div>
                 <h2>{currentPlayer.name}</h2>
                 <p>
-                  {currentPlayer.pos} · {currentPlayer.age} лет ·{" "}
-                  {currentPlayer.nation}
+                  {playerPositions(currentPlayer).join(" / ")} ·{" "}
+                  {currentPlayer.age} лет · {currentPlayer.nation}
                 </p>
               </div>
             </div>

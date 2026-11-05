@@ -10,7 +10,7 @@ const page=await browser.newPage({viewport:{width:1440,height:1000}});const erro
 const getSave=()=>page.evaluate(async()=>{const {readSlot}=await import('/src/storage.ts');return readSlot(1)});
 const waitSave=async(expression)=>{const check=Function('g',`return (${expression})`);const end=Date.now()+60000;while(Date.now()<end){const g=await getSave();if(g&&check(g))return;await new Promise(r=>setTimeout(r,200))}throw new Error(`Timed out waiting for ${expression}`)};
 await page.goto(process.env.BASE_URL||'http://127.0.0.1:5173');await page.getByRole('button',{name:'Подписать контракт'}).click();
-await page.getByRole('heading',{name:'Твоя команда. Твоё наследие.'}).waitFor();
+await page.getByRole('button',{name:'◈ Главная'}).click();await page.getByRole('heading',{name:'Твоя команда. Твоё наследие.'}).waitFor();
 assert.ok((await getSave()).players.filter(p=>p.real).length>1500);
 await page.getByRole('button',{name:'♜ Клуб'}).click();await page.getByLabel('Футбольное поле',{exact:true}).waitFor();
 let beforeLineup=(await getSave()).clubs[0].lineup;const pitchButton=page.locator('.pitch-player').first();const pitchIndex=+(await pitchButton.getAttribute('aria-label')).match(/Позиция (\d+)/)[1]-1;
@@ -20,14 +20,14 @@ await page.screenshot({path:artifacts+'pitch-desktop.png',fullPage:true});await 
 await page.getByRole('button',{name:'◈ Главная'}).click();
 
 const firstHalfStart=Date.now();await page.getByRole('button',{name:/Играть следующий матч/}).click();
-await waitSave("g.live?.status==='halftime'");console.log('First half ms:',Date.now()-firstHalfStart);assert.ok(Date.now()-firstHalfStart<14000);let saved=await getSave();assert.equal(saved.live.minute,45);assert.equal(saved.matches.filter(m=>m.score).length,0);
+await waitSave("g.live?.status==='halftime'");console.log('First half ms:',Date.now()-firstHalfStart);assert.ok(Date.now()-firstHalfStart<14000+(await getSave()).live.events.filter(e=>e.type==='var').length*2000);let saved=await getSave();assert.equal(saved.live.minute,45);assert.equal(saved.matches.filter(m=>m.score).length,0);
 await page.setViewportSize({width:390,height:844});await page.screenshot({path:artifacts+'live-halftime.png',fullPage:true});await page.setViewportSize({width:1440,height:1000});
 await page.reload();await page.getByRole('button',{name:'Начать второй тайм'}).waitFor();assert.equal((await getSave()).live.minute,45);
 await page.getByRole('button',{name:'Состав и замены',exact:true}).click();await page.locator('.in-match-board .pitch-player:not([disabled])').first().click();await page.locator('.in-match-board .bench-player:not([disabled])').first().click();await waitSave('g.live.substitutions.length===1');
 let halftimeSave=await getSave();let substitution=halftimeSave.live.substitutions[0];assert.equal(halftimeSave.players.find(p=>p.id===substitution.in).stats.apps,1);await page.reload();assert.equal((await getSave()).live.substitutions.length,1);
 
 const secondHalfStart=Date.now();await page.getByRole('button',{name:'Начать второй тайм'}).click();await waitSave("g.live?.status==='finished'");
-console.log('Second half ms:',Date.now()-secondHalfStart);assert.ok(Date.now()-secondHalfStart<14000);saved=await getSave();assert.equal(saved.matches.filter(m=>m.score).length,1);assert.equal(saved.live.minute,90);
+console.log('Second half ms:',Date.now()-secondHalfStart);assert.ok(Date.now()-secondHalfStart<14000+(await getSave()).live.events.filter(e=>e.type==='var').length*2000);saved=await getSave();assert.equal(saved.matches.filter(m=>m.score).length,1);assert.equal(saved.live.minute,90);
 await page.getByRole('button',{name:'Готово'}).click();await page.getByRole('button',{name:'⇄ Трансферы'}).click();
 await page.locator('.player').first().click();await page.getByRole('button',{name:'Предложить контракт'}).click();await waitSave('g.transfers.length>0');
 await page.getByRole('button',{name:'×',exact:true}).click();await page.getByRole('button',{name:'▤ Турниры'}).click();assert.equal(await page.locator('tbody tr').count(),56);

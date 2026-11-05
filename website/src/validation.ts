@@ -33,6 +33,37 @@ export function validCareerFields(g: Game): boolean {
       (p) =>
         Number.isInteger(p.id) &&
         p.id >= 0 &&
+        (!p.positions ||
+          (Array.isArray(p.positions) &&
+            p.positions.length <= 10 &&
+            p.positions.every((v) =>
+              [
+                "GK",
+                "CB",
+                "LB",
+                "RB",
+                "CDM",
+                "CM",
+                "CAM",
+                "LW",
+                "RW",
+                "ST",
+                "CF",
+                "LM",
+                "RM",
+                "LWB",
+                "RWB",
+                "DF",
+                "MF",
+                "FW",
+              ].includes(v),
+            ))) &&
+        (!p.bans ||
+          ["league", "ucl"].every(
+            (k) =>
+              Number.isInteger(p.bans![k as "league" | "ucl"]) &&
+              p.bans![k as "league" | "ucl"] >= 0,
+          )) &&
         validStats(p.stats) &&
         validStats(p.career) &&
         (!p.leagueStats || validStats(p.leagueStats)) &&
@@ -56,6 +87,14 @@ export function validCareerFields(g: Game): boolean {
         Number.isInteger(p.contract) &&
         (!p.photo || typeof p.photo === "string"),
     )
+  )
+    return false;
+  if (g.careerMode && !["calendar", "match"].includes(g.careerMode))
+    return false;
+  if (
+    g.calendarDay &&
+    (!/^\d{4}-\d{2}-\d{2}$/.test(g.calendarDay) ||
+      !Number.isFinite(Date.parse(g.calendarDay)))
   )
     return false;
   if (!g.matches.every(match)) return false;
@@ -139,7 +178,9 @@ export function validCareerFields(g: Game): boolean {
       !Number.isInteger(l.minute) ||
       l.minute < 0 ||
       l.minute > 90 ||
-      !["playing", "halftime", "paused", "finished"].includes(l.status) ||
+      !["playing", "halftime", "paused", "finished", "review"].includes(
+        l.status,
+      ) ||
       (l.status === "halftime" && l.minute !== 45) ||
       (l.status === "finished" && (!m.score || l.minute !== 90)) ||
       !Array.isArray(l.score) ||
@@ -188,6 +229,17 @@ export function validCareerFields(g: Game): boolean {
       (l.conceded !== undefined &&
         !Object.entries(l.conceded).every(
           ([id, n]) => playerIds.has(+id) && Number.isInteger(n) && n >= 0,
+        )) ||
+      (l.pendingVAR !== undefined &&
+        (!["goal", "red"].includes(l.pendingVAR.kind) ||
+          !["confirm", "cancel", "yellow"].includes(l.pendingVAR.decision) ||
+          !playerIds.has(l.pendingVAR.player) ||
+          ![0, 1].includes(l.pendingVAR.side))) ||
+      (l.status === "review" && !l.pendingVAR) ||
+      (l.yellowCards !== undefined &&
+        !Object.entries(l.yellowCards).every(
+          ([id, n]) =>
+            playerIds.has(+id) && Number.isInteger(n) && n >= 0 && n <= 2,
         )) ||
       !Array.isArray(l.events) ||
       !l.events.every(

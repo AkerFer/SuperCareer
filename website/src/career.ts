@@ -1,3 +1,4 @@
+import { setPlayerRoles } from "./player-roles";
 import {
   playerById,
   autoLineup,
@@ -58,6 +59,12 @@ export function initializeCareer(g: Game) {
   if (!g.europe) initializeEurope(g);
 }
 export function migrateGame(g: Game) {
+  if (!g.rolesVersion) {
+    g.players.forEach(setPlayerRoles);
+    g.rolesVersion = 1;
+  }
+  g.careerMode ??= "calendar";
+
   if (g.edition !== 2 || !g.europe || !g.awards || !g.coach)
     initializeCareer(g);
   return g;
@@ -253,6 +260,13 @@ export function advanceEurope(g: Game) {
   if (g.live && g.live.status !== "finished")
     throw Error("Завершите текущий матч");
   if (g.europe!.stage === "complete") return;
+  if (
+    g.careerMode === "match" &&
+    europeanDayFixtures(g).some(
+      (m) => !m.score && (m.home === g.club || m.away === g.club),
+    )
+  )
+    throw Error("Сначала сыграйте матч клуба в центре матча");
   europeanDayFixtures(g).forEach((m) => playMatch(g, m));
   settleEuropeanDay(g);
 }
@@ -260,8 +274,16 @@ export function advanceEuropeCalendar(g: Game) {
   while (
     g.europe!.stage !== "complete" &&
     (dates[g.europe!.day] ?? 38) <= g.round
-  )
+  ) {
+    if (
+      g.careerMode === "match" &&
+      europeanDayFixtures(g).some(
+        (m) => !m.score && (m.home === g.club || m.away === g.club),
+      )
+    )
+      break;
     advanceEurope(g);
+  }
   if (seasonComplete(g)) finalizeSeason(g);
 }
 export function seasonComplete(g: Game) {

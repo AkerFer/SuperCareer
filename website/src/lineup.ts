@@ -1,3 +1,4 @@
+import { banFor } from "./discipline";
 import { autoLineup, playerById, squad, type Game } from "./engine";
 import { liveFixture } from "./live";
 export function liveSide(g: Game): 0 | 1 {
@@ -15,6 +16,8 @@ export function setLineupPlayer(
   if (index < 0 || index > 10) throw Error("Неверная позиция");
   const p = playerById(g, inId);
   if (!p || p.club !== g.club) throw Error("Игрок не в вашем клубе");
+  if (banFor(p, liveMode ? (g.live?.competition ?? "league") : "league"))
+    throw Error("Игрок дисквалифицирован");
   if (p.injury) throw Error("Травмированный игрок не может выйти на поле");
   if (liveMode) {
     const live = g.live;
@@ -63,6 +66,8 @@ export function makeSubstitution(
     throw Error("Неверные игроки для замены");
   if (live.sentOff.includes(outId) || live.sentOff.includes(inId))
     throw Error("Удалённого игрока нельзя заменять");
+  if (banFor(incoming, live.competition))
+    throw Error("Игрок дисквалифицирован");
   if (incoming.injury) throw Error("Игрок травмирован");
   if (live.before.some((p) => p.id === inId))
     throw Error("Вышедший с поля игрок не может вернуться");

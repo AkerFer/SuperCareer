@@ -1,3 +1,4 @@
+import { assignCard, banFor, serveBans } from "./discipline";
 import { makeSubstitution } from "./lineup";
 import { roleFamily, formationRows, positionMultiplier } from "./tactics";
 import {
@@ -60,10 +61,12 @@ export function beginLive(g: Game, competition: "league" | "ucl" = "league") {
       c.lineup.length !== 11 ||
       c.lineup.some((pid) => {
         const p = playerById(g, pid);
-        return !p || p.club !== id || p.injury > 0;
+        return (
+          !p || p.club !== id || p.injury > 0 || banFor(p, competition) > 0
+        );
       })
     )
-      autoLineup(g, id);
+      autoLineup(g, id, competition);
     return [...c.lineup];
   }) as [number[], number[]];
   g.live = {
@@ -78,10 +81,21 @@ export function beginLive(g: Game, competition: "league" | "ucl" = "league") {
     before: lineups
       .flat()
       .map((id) => ({ id, stats: { ...playerById(g, id)!.stats } })),
+    yellowCards: {},
+    bansAtStart: g.players
+      .filter(
+        (p) =>
+          (p.club === m.home || p.club === m.away) &&
+          banFor(p, competition) > 0,
+      )
+      .map((p) => p.id),
     sentOff: [],
     bench: [m.home, m.away].map((clubId, i) =>
       squad(g, clubId)
-        .filter((p) => !lineups[i].includes(p.id) && !p.injury)
+        .filter(
+          (p) =>
+            !lineups[i].includes(p.id) && !p.injury && !banFor(p, competition),
+        )
         .sort((a, b) => b.rating - a.rating)
         .slice(0, 9)
         .map((p) => p.id),
@@ -110,7 +124,7 @@ function power(g: Game, live: LiveMatch, side: number) {
         p.rating *
           (0.65 + p.fitness / 285) *
           (0.9 + p.morale / 750) *
-          positionMultiplier(p.pos, slots[index] ?? p.pos)
+          positionMultiplier(p, slots[index] ?? p.pos)
       );
     }, 0) / 11
   );
@@ -145,6 +159,7 @@ function finish(g: Game, m: Match, live: LiveMatch) {
   });
   g.clubs[m.home].budget += 750000;
   g.clubs[m.home].income += 750000;
+  serveBans(g, live.bansAtStart ?? [], live.competition);
   creditStatistics(g, m, live.before);
   if (live.competition === "ucl") settleEuropeanDay(g);
   if (seasonComplete(g)) finalizeSeason(g);
@@ -218,7 +233,7 @@ export function tickLive(g: Game) {
     if (ps.length && random(g) < chance) {
       const weighted = ps.flatMap((p) =>
         Array(
-          p.pos === "ST"
+          ["ST", "CF", "FW"].includes(p.pos)
             ? 7
             : ["LW", "RW", "CAM"].includes(p.pos)
               ? 4
@@ -234,40 +249,22 @@ export function tickLive(g: Game) {
           assists.length && random(g) < 0.8
             ? assists[Math.floor(random(g) * assists.length)]
             : undefined;
-        p.stats.goals++;
-        if (assist) assist.stats.assists++;
-        live.score[side]++;
-        live.lineups[1 - side]
-          .map((id) => playerById(g, id)!)
-          .filter((p) => p.pos === "GK" && !live.sentOff.includes(p.id))
-          .forEach((p) => {
-            live.conceded![p.id] = (live.conceded![p.id] ?? 0) + 1;
-          });
-        live.shots[side]++;
-        live.events.push({
-          minute: live.minute,
-          type: "goal",
-          side,
-          player: p.id,
-          assist: assist?.id,
-          text: `${live.minute}′ ${p.name} — ГОЛ${assist ? ` (пас: ${assist.name})` : ""}`,
-        });
+        if (random(g) < 0.24) {
+          queueVAR(g, "goal", side, p.id, assist?.id);
+          return;
+        }
+        creditGoal(g, side, p.id, assist?.id);
       }
     }
     if (ps.length && random(g) < 0.014) {
       const p = ps[Math.floor(random(g) * ps.length)];
-      const red = random(g) < 0.06;
-      if (red) {
-        p.stats.red++;
-        live.sentOff.push(p.id);
-      } else p.stats.yellow++;
-      live.events.push({
-        minute: live.minute,
-        type: red ? "red" : "yellow",
-        side,
-        player: p.id,
-        text: `${live.minute}′ ${p.name} — ${red ? "красная" : "жёлтая"} карточка`,
-      });
+      if (random(g) < 0.06) {
+        if (random(g) < 0.45) {
+          queueVAR(g, "red", side, p.id);
+          return;
+        }
+        assignCard(g, side, p.id, "red");
+      } else assignCard(g, side, p.id, "yellow");
     }
     if (ps.length && random(g) < 0.0015) {
       const p = ps[Math.floor(random(g) * ps.length)];
@@ -291,8 +288,114 @@ export function resumeLive(g: Game) {
 export function skipLive(g: Game) {
   if (!g.live) return;
   resumeLive(g);
-  while (g.live.status === "playing") {
-    tickLive(g);
+  while (["playing", "review"].includes(g.live.status)) {
+    if (g.live.status === "review") resolveVAR(g);
+    else tickLive(g);
     if ((g.live.status as string) === "halftime") resumeLive(g);
   }
+}
+
+export function creditGoal(
+  g: Game,
+  side: 0 | 1,
+  id: number,
+  assistId?: number,
+) {
+  const l = g.live!;
+  const p = playerById(g, id)!;
+  const a = assistId === undefined ? undefined : playerById(g, assistId);
+  p.stats.goals++;
+  if (a) a.stats.assists++;
+  l.score[side]++;
+  l.shots[side]++;
+  l.conceded ??= {};
+  l.lineups[1 - side]
+    .map((id) => playerById(g, id)!)
+    .filter((p) => p.pos === "GK" && !l.sentOff.includes(p.id))
+    .forEach((p) => {
+      l.conceded![p.id] = (l.conceded![p.id] ?? 0) + 1;
+    });
+  l.events.push({
+    minute: l.minute,
+    type: "goal",
+    side,
+    player: id,
+    assist: assistId,
+    text: `${l.minute}′ ${p.name} — ГОЛ${a ? ` (пас: ${a.name})` : ""}`,
+  });
+}
+export function queueVAR(
+  g: Game,
+  kind: "goal" | "red",
+  side: 0 | 1,
+  id: number,
+  assist?: number,
+) {
+  const l = g.live!;
+  const r = random(g);
+  l.pendingVAR = {
+    kind,
+    side,
+    player: id,
+    assist,
+    reason:
+      kind === "goal"
+        ? "Возможный офсайд / нарушение в атаке"
+        : "Проверка серьёзного нарушения",
+    decision:
+      kind === "goal"
+        ? r < 0.32
+          ? "cancel"
+          : "confirm"
+        : r < 0.25
+          ? "cancel"
+          : r < 0.48
+            ? "yellow"
+            : "confirm",
+  };
+  l.status = "review";
+  l.events.push({
+    minute: l.minute,
+    type: "var",
+    side,
+    player: id,
+    text: `${l.minute}′ VAR — ${l.pendingVAR.reason}`,
+  });
+}
+export function resolveVAR(g: Game) {
+  const l = g.live;
+  const review = l?.pendingVAR;
+  if (!l || l.status !== "review" || !review) return;
+  const p = playerById(g, review.player)!;
+  if (review.kind === "goal" && review.decision === "confirm") {
+    l.events.push({
+      minute: l.minute,
+      type: "var",
+      side: review.side,
+      player: p.id,
+      text: `${l.minute}′ VAR: гол засчитан`,
+    });
+    creditGoal(g, review.side, p.id, review.assist);
+  } else if (review.kind === "red" && review.decision === "confirm")
+    assignCard(g, review.side, p.id, "red");
+  else if (review.kind === "red" && review.decision === "yellow") {
+    l.events.push({
+      minute: l.minute,
+      type: "var",
+      side: review.side,
+      player: p.id,
+      text: `${l.minute}′ VAR: жёлтая вместо прямой красной`,
+    });
+    assignCard(g, review.side, p.id, "yellow");
+  } else
+    l.events.push({
+      minute: l.minute,
+      type: "var",
+      side: review.side,
+      player: p.id,
+      text: `${l.minute}′ VAR: ${review.kind === "goal" ? "гол отменён — счёт не изменился" : "удаление отменено"}`,
+    });
+  delete l.pendingVAR;
+  l.status = l.minute === 45 ? "halftime" : "playing";
+  if (l.minute >= 90) finish(g, liveFixture(g)!, l);
 }

@@ -1,3 +1,4 @@
+import { resolveVAR } from "./live";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -99,7 +100,10 @@ test("live match stops at half-time, survives JSON and credits statistics once",
   const g = createGame("Alex", "England", 0, "Обычно", 2025, 100);
   beginLive(g);
   assert.equal(g.live!.minute, 0);
-  for (let i = 0; i < 45; i++) tickLive(g);
+  for (let i = 0; i < 45; i++) {
+    tickLive(g);
+    if (g.live!.status === "review") resolveVAR(g);
+  }
   assert.equal(g.live!.minute, 45);
   assert.equal(g.live!.status, "halftime");
   assert.equal(g.matches.filter((m) => m.score).length, 0);
@@ -238,6 +242,7 @@ test("live save journal restores exact minute without recompressing the base sna
     const base = data.get("fl-slot-1");
     for (let i = 0; i < 45; i++) {
       tickLive(g);
+      if (g.live!.status === "review") resolveVAR(g);
       saveSlot(1, g);
     }
     assert.equal(data.get("fl-slot-1"), base);
@@ -285,7 +290,10 @@ test("five live substitutions affect appearances, minutes, event log and saved j
   const { saveSlot, readSlot } = await import("./storage");
   const g = createGame("Alex", "England", 0, "Обычно", 2025, 51);
   beginLive(g);
-  for (let i = 0; i < 45; i++) tickLive(g);
+  for (let i = 0; i < 45; i++) {
+    tickLive(g);
+    if (g.live!.status === "review") resolveVAR(g);
+  }
   const side = liveSide(g);
   const ids = g.live!.lineups[side].filter(
     (id) => !g.live!.sentOff.includes(id),
@@ -358,4 +366,102 @@ test("red-carded players cannot be replaced and a consecutive live game advances
   assert.equal(g.live!.minute, 0);
   assert.equal(g.matches.filter((m) => m.round === 0 && m.score).length, 48);
   assert.ok(validateSave(g));
+});
+
+test("real primary and secondary roles do not mix namesakes or mutate on a pitch swap", async () => {
+  const { positionMultiplier } = await import("./tactics");
+  const { setLineupPlayer } = await import("./lineup");
+  const g = createGame("Alex", "England", 0, "Обычно", 2025, 12);
+  const saka = g.players.find((p) => p.name === "Bukayo Saka")!;
+  const onana = g.players.find((p) => p.name === "Amadou Onana")!;
+  const martinez = g.players.find((p) => p.name === "Lisandro Martínez")!;
+  assert.equal(saka.pos, "RW");
+  assert.ok(saka.positions!.includes("RM"));
+  assert.equal(onana.pos, "CDM");
+  assert.equal(martinez.pos, "CB");
+  assert.ok(martinez.positions!.includes("LB"));
+  assert.ok(
+    positionMultiplier(martinez, "LB") > positionMultiplier(martinez, "ST"),
+  );
+  const roles = JSON.stringify(saka.positions);
+  setLineupPlayer(g, 7, saka.id);
+  assert.equal(saka.pos, "RW");
+  assert.equal(JSON.stringify(saka.positions), roles);
+});
+test("VAR confirms or cancels a goal atomically and preserves its decision through a save", async () => {
+  const { beginLive, queueVAR, resolveVAR, tickLive } = await import("./live");
+  const { encodeSave, decodeSave } = await import("./storage");
+  const g = createGame("Alex", "England", 0, "Обычно", 2025, 3);
+  beginLive(g);
+  g.live!.minute = 12;
+  const id = g.live!.lineups[0].find(
+    (id) => g.players.find((p) => p.id === id)!.pos !== "GK",
+  )!;
+  queueVAR(g, "goal", 0, id);
+  g.live!.pendingVAR!.decision = "cancel";
+  const score = [...g.live!.score];
+  tickLive(g);
+  assert.equal(g.live!.minute, 12);
+  const restored = decodeSave(encodeSave(g))!;
+  assert.ok(restored);
+  assert.equal(restored.live!.pendingVAR!.decision, "cancel");
+  resolveVAR(restored);
+  assert.deepEqual(restored.live!.score, score);
+  assert.equal(restored.players.find((p) => p.id === id)!.stats.goals, 0);
+  queueVAR(restored, "goal", 0, id);
+  restored.live!.pendingVAR!.decision = "confirm";
+  resolveVAR(restored);
+  resolveVAR(restored);
+  assert.equal(restored.live!.score[0], 1);
+  assert.equal(restored.players.find((p) => p.id === id)!.stats.goals, 1);
+  assert.equal(
+    restored.live!.events.filter((e) => e.type === "goal").length,
+    1,
+  );
+});
+test("second yellow sends off, bans remain competition-specific and are served the next match", async () => {
+  const { assignCard, banFor, serveBans } = await import("./discipline");
+  const { beginLive } = await import("./live");
+  const g = createGame("Alex", "England", 0, "Обычно", 2025, 19);
+  beginLive(g);
+  g.live!.minute = 15;
+  const id = g.live!.lineups[0][3];
+  assignCard(g, 0, id, "yellow");
+  assignCard(g, 0, id, "yellow");
+  assignCard(g, 0, id, "yellow");
+  const p = g.players.find((p) => p.id === id)!;
+  assert.equal(p.stats.yellow, 2);
+  assert.equal(p.stats.red, 1);
+  assert.equal(g.live!.sentOff.filter((pid) => pid === id).length, 1);
+  assert.equal(banFor(p, "league"), 1);
+  assert.equal(banFor(p, "ucl"), 0);
+  serveBans(g, [id], "ucl");
+  assert.equal(banFor(p, "league"), 1);
+  serveBans(g, [id], "league");
+  assert.equal(banFor(p, "league"), 0);
+});
+test("calendar simulates dates while match mode preserves own domestic and UCL fixtures", async () => {
+  const { advanceCalendar, beginNextCareerMatch, careerDate } =
+    await import("./calendar");
+  const { skipLive } = await import("./live");
+  const g = createGame("Alex", "England", 0, "Обычно", 2025, 1);
+  g.careerMode = "calendar";
+  advanceCalendar(g, 7);
+  assert.equal(g.round, 2);
+  assert.equal(careerDate(g), "2025-08-16");
+  const manual = createGame("Alex", "England", 0, "Обычно", 2025, 1);
+  manual.careerMode = "match";
+  assert.throws(() => advanceCalendar(manual, 7), /каждый матч/);
+  assert.throws(() => advance(manual, 1), /Сначала сыграйте/);
+  for (let i = 0; i < 3; i++) {
+    beginNextCareerMatch(manual);
+    assert.equal(manual.live!.competition, "league");
+    skipLive(manual);
+  }
+  beginNextCareerMatch(manual);
+  assert.equal(manual.live!.competition, "ucl");
+  skipLive(manual);
+  beginNextCareerMatch(manual);
+  assert.equal(manual.live!.competition, "league");
+  assert.ok(validateSave(manual));
 });

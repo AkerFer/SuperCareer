@@ -1,3 +1,4 @@
+import { banFor, serveBans, type Competition } from "./discipline";
 import { formationRows, roleFamily, positionMultiplier } from "./tactics";
 import { validCareerFields } from "./validation";
 import type {
@@ -43,6 +44,14 @@ export const positions = [
   "LW",
   "RW",
   "ST",
+  "CF",
+  "LM",
+  "RM",
+  "LWB",
+  "RWB",
+  "DF",
+  "MF",
+  "FW",
 ];
 export interface Stats {
   goals: number;
@@ -59,6 +68,12 @@ export interface Player {
   age: number;
   nation: string;
   pos: string;
+  positions?: string[];
+  positionSource?: string;
+  suspension?: number;
+  bans?: { league: number; ucl: number };
+  yellowCarryByCompetition?: { league: number; ucl: number };
+  yellowCarry?: number;
   rating: number;
   potential: number;
   value: number;
@@ -140,6 +155,9 @@ export interface Game {
   coach?: CoachTotals;
   live?: LiveMatch;
   database?: string;
+  rolesVersion?: 1;
+  careerMode?: "calendar" | "match";
+  calendarDay?: string;
 }
 export const emptyStats = (): Stats => ({
   goals: 0,
@@ -368,9 +386,13 @@ export function playerById(g: Game, id: number): Player | undefined {
 export function squad(g: Game, id: number) {
   return g.players.filter((p) => p.club === id);
 }
-export function autoLineup(g: Game, id: number) {
+export function autoLineup(
+  g: Game,
+  id: number,
+  competition: Competition = "league",
+) {
   const c = g.clubs[id];
-  const ps = squad(g, id).filter((p) => !p.injury);
+  const ps = squad(g, id).filter((p) => !p.injury && !banFor(p, competition));
   const picked: Player[] = [];
   for (const pos of formationRows(c.formation).flat()) {
     let candidates = ps.filter((p) => !picked.includes(p));
@@ -379,8 +401,7 @@ export function autoLineup(g: Game, id: number) {
     else if (pos !== "GK" && candidates.some((p) => p.pos !== "GK"))
       candidates = candidates.filter((p) => p.pos !== "GK");
     const score = (p: Player) =>
-      p.rating * (0.6 + p.fitness / 250) +
-      (p.pos === pos ? 25 : roleFamily(p.pos) === roleFamily(pos) ? 8 : 0);
+      p.rating * (0.6 + p.fitness / 250) * positionMultiplier(p, pos);
     candidates.sort((a, b) => score(b) - score(a) || a.id - b.id);
     if (candidates[0]) picked.push(candidates[0]);
   }
@@ -444,13 +465,22 @@ function poisson(g: Game, lambda: number) {
 }
 export function playMatch(g: Game, m: Match) {
   if (m.score) return;
+  const competition = m.competition ?? "league";
+  const banned = g.players
+    .filter(
+      (p) =>
+        (p.club === m.home || p.club === m.away) && banFor(p, competition) > 0,
+    )
+    .map((p) => p.id);
   const cs = [g.clubs[m.home], g.clubs[m.away]];
   const sides = cs.map((c) => {
     let ps = c.lineup
       .map((id) => playerById(g, id)!)
-      .filter((p) => p && p.club === c.id && !p.injury);
+      .filter(
+        (p) => p && p.club === c.id && !p.injury && !banFor(p, competition),
+      );
     if (ps.length < 11) {
-      autoLineup(g, c.id);
+      autoLineup(g, c.id, competition);
       ps = c.lineup.map((id) => playerById(g, id)!);
     }
     return ps;
@@ -465,7 +495,7 @@ export function playMatch(g: Game, m: Match) {
             (0.65 + p.fitness / 285) *
             (0.9 + p.morale / 750) *
             positionMultiplier(
-              p.pos,
+              p,
               formationRows(cs[side].formation).flat()[index] ?? p.pos,
             ),
         0,
@@ -517,12 +547,20 @@ export function playMatch(g: Game, m: Match) {
       if (p.pos === "GK" && scores[1 - i] === 0) p.stats.clean++;
       if (random(g) < 0.12) {
         p.stats.yellow++;
+        p.yellowCarryByCompetition ??= { league: 0, ucl: 0 };
+        p.bans ??= { league: 0, ucl: 0 };
+        if (++p.yellowCarryByCompetition[competition] >= 5) {
+          p.yellowCarryByCompetition[competition] = 0;
+          p.bans[competition] = Math.max(p.bans[competition], 1);
+        }
         m.events!.push(
           `${5 + Math.floor(random(g) * 85)}′ ${p.name} — жёлтая карточка`,
         );
       }
       if (random(g) < 0.008) {
         p.stats.red++;
+        p.bans ??= { league: 0, ucl: 0 };
+        p.bans[competition] = Math.max(p.bans[competition], 3);
         m.events!.push(
           `${20 + Math.floor(random(g) * 70)}′ ${p.name} — красная карточка`,
         );
@@ -538,7 +576,7 @@ export function playMatch(g: Game, m: Match) {
       const weighted = ps.flatMap(
         (p) =>
           Array(
-            p.pos === "ST"
+            ["ST", "CF", "FW"].includes(p.pos)
               ? 7
               : ["LW", "RW", "CAM"].includes(p.pos)
                 ? 4
@@ -565,6 +603,7 @@ export function playMatch(g: Game, m: Match) {
   m.events.sort((a, b) => parseInt(a) - parseInt(b));
   cs[0].budget += 750000;
   cs[0].income += 750000;
+  serveBans(g, banned, competition);
   creditStatistics(g, m, before);
 }
 export function advance(g: Game, count = 1, onlyOwn = false) {
@@ -577,6 +616,11 @@ export function advance(g: Game, count = 1, onlyOwn = false) {
       g.round++;
       continue;
     }
+    if (
+      g.careerMode === "match" &&
+      fixtures.some((m) => !m.score && (m.home === g.club || m.away === g.club))
+    )
+      throw Error("Сначала сыграйте матч клуба в центре матча");
     if (onlyOwn) {
       const own = fixtures.find(
         (m) => !m.score && (m.home === g.club || m.away === g.club),
@@ -597,6 +641,9 @@ export function advance(g: Game, count = 1, onlyOwn = false) {
       c.expenses += wages;
     });
     g.round++;
+    g.calendarDay = new Date(Date.UTC(g.season, 7, 9 + g.round * 7))
+      .toISOString()
+      .slice(0, 10);
     if (g.round % 5 === 0) aiTransfer(g);
     advanceEuropeCalendar(g);
   }
@@ -715,6 +762,7 @@ export function nextSeason(g: Game) {
       Math.pow(p.rating / 10, 3) * 40000 * Math.max(0.15, (40 - p.age) / 15),
     );
     p.stats = emptyStats();
+    p.yellowCarryByCompetition = { league: 0, ucl: 0 };
     p.leagueById = {};
     p.leagueStats = emptyStats();
     p.europeanStats = emptyStats();
@@ -735,6 +783,7 @@ export function nextSeason(g: Game) {
   });
   g.season++;
   g.round = 0;
+  g.calendarDay = undefined;
   g.matches = calendar(g.clubs);
   g.live = undefined;
   initializeEurope(g, nextQualifiers);

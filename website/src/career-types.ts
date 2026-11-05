@@ -45,7 +45,7 @@ export interface CoachTotals {
 }
 export interface MatchEvent {
   minute: number;
-  type: "goal" | "yellow" | "red" | "injury" | "sub";
+  type: "goal" | "yellow" | "red" | "injury" | "sub" | "var";
   side: 0 | 1;
   player: number;
   assist?: number;
@@ -59,7 +59,7 @@ export interface LiveMatch {
   matchId: number;
   competition: "league" | "ucl";
   minute: number;
-  status: "playing" | "halftime" | "paused" | "finished";
+  status: "playing" | "halftime" | "paused" | "finished" | "review";
   score: [number, number];
   shots: [number, number];
   events: MatchEvent[];
@@ -70,4 +70,14 @@ export interface LiveMatch {
   substitutions?: { side: 0 | 1; out: number; in: number; minute: number }[];
   minutes?: Record<number, number>;
   conceded?: Record<number, number>;
+  yellowCards?: Record<number, number>;
+  bansAtStart?: number[];
+  pendingVAR?: {
+    kind: "goal" | "red";
+    side: 0 | 1;
+    player: number;
+    assist?: number;
+    reason: string;
+    decision: "confirm" | "cancel" | "yellow";
+  };
 }

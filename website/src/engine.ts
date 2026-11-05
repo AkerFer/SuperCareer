@@ -11,6 +11,7 @@ import type {
 } from "./career-types";
 import {
   initializeCareer,
+  uefaQuota,
   initializeEurope,
   creditStatistics,
   advanceEuropeCalendar,
@@ -27,7 +28,15 @@ export const leagues = [
   "Serie A",
   "Bundesliga",
   "Ligue 1",
+  "MLS",
+  "Saudi Pro League",
+  "Primeira Liga",
+  "Süper Lig",
 ];
+import { enrichWorld } from "./expand-world";
+import { initializeDomestic, domesticCalendar } from "./domestic";
+import extraLeagues from "./data/extra-leagues.json";
+import { marketValue, refreshPrices } from "./pricing";
 const teams = [
   "Arsenal,Aston Villa,Bournemouth,Brentford,Brighton,Chelsea,Crystal Palace,Everton,Fulham,Ipswich Town,Leicester City,Liverpool,Manchester City,Manchester United,Newcastle United,Nottingham Forest,Southampton,Tottenham,West Ham,Wolverhampton",
   "Real Madrid,Barcelona,Atlético Madrid,Athletic Club,Real Sociedad,Villarreal,Real Betis,Sevilla,Valencia,Osasuna,Celta Vigo,Getafe,Rayo Vallecano,Mallorca,Las Palmas,Girona,Alavés,Espanyol,Leganés,Valladolid",
@@ -35,6 +44,7 @@ const teams = [
   "Bayern Munich,Borussia Dortmund,Bayer Leverkusen,RB Leipzig,Eintracht Frankfurt,Stuttgart,Freiburg,Hoffenheim,Werder Bremen,Wolfsburg,Mainz,Augsburg,Union Berlin,Borussia Mönchengladbach,Bochum,Heidenheim,St. Pauli,Holstein Kiel",
   "Paris Saint-Germain,Marseille,Monaco,Lille,Lyon,Nice,Lens,Rennes,Strasbourg,Toulouse,Brest,Montpellier,Nantes,Reims,Le Havre,Auxerre,Angers,Saint-Étienne",
 ];
+teams.push(...extraLeagues.map((l) => l.clubs.map((c) => c.name).join(",")));
 export const positions = [
   "GK",
   "CB",
@@ -96,8 +106,10 @@ export interface Player {
   positionRatings?: Record<string, number>;
   cardBaseRating?: number;
   suspension?: number;
-  bans?: Partial<Record<"league" | ClubCupId, number>>;
-  yellowCarryByCompetition?: Partial<Record<"league" | ClubCupId, number>>;
+  bans?: Partial<Record<"league" | "domestic" | ClubCupId, number>>;
+  yellowCarryByCompetition?: Partial<
+    Record<"league" | "domestic" | ClubCupId, number>
+  >;
   yellowCarry?: number;
   rating: number;
   potential: number;
@@ -113,6 +125,9 @@ export interface Player {
   injuryDetail?: Injury;
   stats: Stats;
   career: Stats;
+  clubHistory?: ({ season: number; club: number } & Stats)[];
+  nationalStats?: Stats;
+  nationalBySeason?: Record<number, Stats>;
   real?: boolean;
   ageEstimated?: boolean;
   photo?: string;
@@ -149,7 +164,8 @@ export interface Match {
   score?: [number, number];
   events?: string[];
   shots?: [number, number];
-  competition?: ClubCupId;
+  competition?: ClubCupId | "domestic";
+  tournament?: string;
   date?: string;
   stage?: EuropeanStage | "groups" | "r32";
   tie?: number;
@@ -187,6 +203,16 @@ export interface Game {
   database?: string;
   rolesVersion?: 1;
   ratingsVersion?: 1;
+  pricingVersion?: 2;
+  worldVersion?: 1;
+  lastLeagueOrder?: number[][];
+  domestic?: Record<string, import("./domestic").DomesticCup>;
+  domesticHistory?: {
+    season: number;
+    key: string;
+    name: string;
+    winner: number;
+  }[];
   careerMode?: "calendar" | "match";
   calendarDay?: string;
   continental?: Partial<Record<"uel" | "uecl" | "supercup", Cup>>;
@@ -252,13 +278,13 @@ export function random(g: Game) {
   g.seed = (Math.imul(g.seed, 1664525) + 1013904223) >>> 0;
   return g.seed / 4294967296;
 }
-function youth(g: Game, c: Club, id: number, initial = false): Player {
+export function youth(g: Game, c: Club, id: number, initial = false): Player {
   const r = () => random(g);
   const rating = Math.max(
     40,
     Math.min(92, Math.round(c.strength - 12 + r() * 20)),
   );
-  return {
+  const player: Player = {
     id,
     club: c.id,
     name:
@@ -312,11 +338,76 @@ function youth(g: Game, c: Club, id: number, initial = false): Player {
     stats: emptyStats(),
     career: emptyStats(),
   };
+  player.value = marketValue(player);
+  return player;
 }
-export function calendar(clubs: Club[]): Match[] {
+export function calendar(clubs: Club[], game?: Game): Match[] {
   const out: Match[] = [];
   leagues.forEach((_, l) => {
     const ids = clubs.filter((c) => c.league === l).map((c) => c.id);
+    if (game)
+      for (let i = ids.length - 1; i > 0; i--) {
+        const j = Math.floor(random(game) * (i + 1));
+        [ids[i], ids[j]] = [ids[j], ids[i]];
+      }
+    if (ids.length === 0) return;
+    if (ids.length === 30) {
+      const east = new Set([
+        "Atlanta United",
+        "CF Montréal",
+        "Charlotte FC",
+        "Chicago Fire",
+        "Columbus Crew",
+        "DC United",
+        "FC Cincinnati",
+        "Inter Miami",
+        "Nashville SC",
+        "New England Revolution",
+        "New York City FC",
+        "New York Red Bulls",
+        "Orlando City SC",
+        "Philadelphia Union",
+        "Toronto FC",
+      ]);
+      const groups = [
+        ids.filter((id) => east.has(clubs.find((c) => c.id === id)!.name)),
+        ids.filter((id) => !east.has(clubs.find((c) => c.id === id)!.name)),
+      ];
+      for (const group of groups) {
+        const ring = [...group, -1];
+        for (let r = 0; r < 15; r++) {
+          for (let i = 0; i < 8; i++) {
+            const a = ring[i],
+              b = ring[15 - i];
+            if (a < 0 || b < 0) continue;
+            const home = r % 2 ? a : b,
+              away = r % 2 ? b : a;
+            out.push({ id: out.length, league: l, round: r, home, away });
+            out.push({
+              id: out.length,
+              league: l,
+              round: r + 15,
+              home: away,
+              away: home,
+            });
+          }
+          ring.splice(1, 0, ring.pop()!);
+        }
+      }
+      for (let r = 0; r < 6; r++)
+        for (let i = 0; i < 15; i++) {
+          const a = groups[0][i],
+            b = groups[1][(i + r) % 15];
+          out.push({
+            id: out.length,
+            league: l,
+            round: 30 + r,
+            home: r % 2 ? a : b,
+            away: r % 2 ? b : a,
+          });
+        }
+      return;
+    }
     const n = ids.length;
     for (let r = 0; r < n - 1; r++) {
       for (let i = 0; i < n / 2; i++) {
@@ -395,10 +486,38 @@ export function createGame(
     autoLineup(g, c.id);
   });
   applyRealDatabase(g);
+  for (const c of g.clubs.filter((c) => c.league >= 5)) {
+    const data = extraLeagues[c.league - 5].clubs.find(
+      (x) => x.name === c.name,
+    )!;
+    const ps = squad(g, c.id);
+    data.players.forEach((r, i) => {
+      const p = ps[i];
+      if (!p) return;
+      Object.assign(p, r, {
+        pos: r.positions[0],
+        real: true,
+        ageEstimated: false,
+        source: "FC 26 · 19.09.2025",
+        ratingSource: {
+          kind: "eafc",
+          source: "https://github.com/ismailoksuz/EAFC26-DataHub",
+          date: "2025-09-19",
+          edition: "FC 26",
+        },
+      });
+    });
+    c.strength = Math.round(ps.reduce((s, p) => s + p.rating, 0) / ps.length);
+    c.budget =
+      c.league === 6 ? 100000000 : c.league === 5 ? 20000000 : 45000000;
+  }
+
   g.rolesVersion = 1;
   applyCardRatings(g);
+  refreshPrices(g);
+  enrichWorld(g);
   g.clubs.forEach((c) => autoLineup(g, c.id));
-  g.matches = calendar(g.clubs);
+  g.matches = calendar(g.clubs, g);
   initializeCareer(g);
   return g;
 }
@@ -422,8 +541,31 @@ export function playerById(g: Game, id: number): Player | undefined {
   }
   return cached.map.get(id);
 }
+const rosterCache = new WeakMap<
+  Game,
+  { players: Player[]; length: number; clubs: Map<number, Player[]> }
+>();
+export function invalidateSquads(g: Game) {
+  rosterCache.delete(g);
+}
 export function squad(g: Game, id: number) {
-  return g.players.filter((p) => p.club === id);
+  let cached = rosterCache.get(g);
+  if (
+    !cached ||
+    cached.players !== g.players ||
+    cached.length !== g.players.length
+  ) {
+    const clubs = new Map<number, Player[]>();
+    for (const p of g.players) {
+      if (p.club === null) continue;
+      const list = clubs.get(p.club);
+      if (list) list.push(p);
+      else clubs.set(p.club, [p]);
+    }
+    cached = { players: g.players, length: g.players.length, clubs };
+    rosterCache.set(g, cached);
+  }
+  return [...(cached.clubs.get(id) ?? [])];
 }
 export function autoLineup(
   g: Game,
@@ -505,7 +647,7 @@ function poisson(g: Game, lambda: number) {
 export function playMatch(g: Game, m: Match) {
   if (m.score) return;
   const competition = m.competition ?? "league";
-  const banned = g.players
+  const banned = [...squad(g, m.home), ...squad(g, m.away)]
     .filter(
       (p) =>
         (p.club === m.home || p.club === m.away) && banFor(p, competition) > 0,
@@ -696,6 +838,7 @@ export function advance(
     if (g.round % 5 === 0) aiTransfer(g);
     advanceEuropeCalendar(g, throughDate);
     advanceContinentalCalendar(g, throughDate);
+    domesticCalendar(g, throughDate);
     if (g.round === 38) advanceInternationals(g, throughDate);
     if (seasonComplete(g)) finalizeSeason(g);
   }
@@ -743,6 +886,7 @@ export function transfer(
     fee,
   });
   p.club = buyer;
+  invalidateSquads(g);
   p.salary = salary;
   p.contract = 4;
   if (old !== null) autoLineup(g, old);
@@ -783,10 +927,13 @@ export function nextSeason(g: Game) {
   archiveCoachSeason(g);
   const nextQualifiers = leagues.flatMap((_, l) =>
     table(g, l)
-      .slice(0, l === 0 ? 8 : 7)
+      .slice(0, uefaQuota(g, l))
       .map((r) => r.club.id),
   );
-  const champions = leagues.map((_, l) => table(g, l)[0].club);
+  g.lastLeagueOrder = leagues.map((_, l) => table(g, l).map((r) => r.club.id));
+  const champions = leagues
+    .filter((_, l) => g.clubs.some((c) => c.league === l))
+    .map((_, l) => table(g, l)[0].club);
   const top = [...g.players].sort((a, b) => b.stats.goals - a.stats.goals)[0];
   g.history.unshift({
     season: g.season,
@@ -817,9 +964,7 @@ export function nextSeason(g: Game) {
     p.contract--;
     p.valueSource = undefined;
     p.ratingSource = undefined;
-    p.value = Math.round(
-      Math.pow(p.rating / 10, 3) * 40000 * Math.max(0.15, (40 - p.age) / 15),
-    );
+    p.value = marketValue(p);
     p.stats = emptyStats();
     p.yellowCarryByCompetition = { league: 0, ucl: 0 };
     p.leagueById = {};
@@ -836,18 +981,26 @@ export function nextSeason(g: Game) {
   g.players = g.players.filter((p) => p.age < 38);
   let id =
     Math.max(...g.players.map((p) => p.id), ...g.archive.map((p) => p.id)) + 1;
-  g.clubs.forEach((c) => {
-    while (squad(g, c.id).length < 22) g.players.push(youth(g, c, id++));
-    autoLineup(g, c.id);
-  });
+  const rosterCounts = new Map<number, number>();
+  for (const p of g.players)
+    if (p.club !== null)
+      rosterCounts.set(p.club, (rosterCounts.get(p.club) ?? 0) + 1);
+  for (const c of g.clubs) {
+    const missing = Math.max(0, 22 - (rosterCounts.get(c.id) ?? 0));
+    for (let i = 0; i < missing; i++) g.players.push(youth(g, c, id++));
+  }
+  invalidateSquads(g);
+  g.clubs.forEach((c) => autoLineup(g, c.id));
   g.season++;
   g.round = 0;
   recoverInjuries(g, `${g.season}-08-09`);
   g.calendarDay = undefined;
-  g.matches = calendar(g.clubs);
+  g.matches = calendar(g.clubs, g);
   g.live = undefined;
   initializeEurope(g, nextQualifiers);
   initializeContinental(g);
+  const previousDomestic = g.domestic;
+  initializeDomestic(g, previousDomestic);
   initializeInternationals(g);
   g.news.unshift(
     `Сезон ${g.season}: клуб получил телеправа и спонсорские выплаты. Контракты истекли, академии выпустили новых игроков.`,
@@ -860,7 +1013,7 @@ export function validateSave(x: unknown): x is Game {
     if (
       g.version !== 1 ||
       !Array.isArray(g.clubs) ||
-      g.clubs.length !== 96 ||
+      ![96, 180].includes(g.clubs.length) ||
       !Array.isArray(g.players) ||
       !Array.isArray(g.matches) ||
       !Array.isArray(g.history) ||

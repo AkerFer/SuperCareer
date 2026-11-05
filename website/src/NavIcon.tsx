@@ -1,0 +1,28 @@
+const paths = [
+  "M3 11L12 3L21 11V21H15V14H9V21H3Z",
+  "M4 5H20V21H4ZM8 2V8M16 2V8M4 11H20M8 15H10M14 15H16",
+  "M5 4H19V20H5ZM5 9H19M12 9V20M9 4V9M15 4V9",
+  "M12 3L17 7L15 13H9L7 7ZM3 8L4 17L12 22L20 17L21 8M4 17L9 13M20 17L15 13",
+  "M8 4L21 12L8 20Z",
+  "M3 7H21L16 2M21 17H3L8 22",
+  "M4 3H10V9H4ZM14 15H20V21H14ZM10 6H17V15M4 16H10M7 9V16",
+  "M4 21V13H8V21M10 21V7H14V21M16 21V3H20V21",
+  "M6 3H18V10Q18 16 12 17Q6 16 6 10ZM6 6H2V10Q2 14 7 14M18 6H22V10Q22 14 17 14M12 17V22M7 22H17",
+  "M8 9A4 4 0 1 0 8 8M4 22V19Q4 13 12 13Q20 13 20 19V22",
+  "M12 2L15 8L22 9L17 14L18 21L12 18L6 21L7 14L2 9L9 8Z",
+  "M9 3H15L16 7L20 8L22 13L19 16L19 20L14 22L11 19L7 20L3 16L5 12L3 8L7 5ZM16 12A4 4 0 1 0 8 12A4 4 0 1 0 16 12",
+];
+export function NavIcon({ index }: { index: number }) {
+  return (
+    <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d={paths[index] ?? paths[0]}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.65"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

@@ -16,6 +16,7 @@ import {
   competitionMarks,
   competitionNames,
 } from "./continental";
+import { CompetitionBadge } from "./CompetitionBadge";
 export function CareerHub({
   game: g,
   act,
@@ -97,11 +98,12 @@ export function CareerHub({
             ))}
             {Array.from({ length: count }, (_, i) => {
               const date = `${month}-${String(i + 1).padStart(2, "0")}`;
-              const fixture = allClubMatches(g).find(
+              const fixtures = allClubMatches(g).filter(
                 (f) =>
                   matchDate(g, f) === date &&
                   (f.home === g.club || f.away === g.club),
               );
+              const fixture = fixtures[0];
               return (
                 <button
                   key={date}
@@ -122,7 +124,7 @@ export function CareerHub({
                         ),
                       );
                   }}
-                  aria-label={`${date}${fixture ? " · Матч клуба" : ""}`}
+                  aria-label={`${date}${fixture ? " · Матч клуба · " + resultForClub(fixture, g.club) : ""}`}
                 >
                   <b>{i + 1}</b>
                   {fixture && (
@@ -144,9 +146,15 @@ export function CareerHub({
                         }
                       />
                       <small>
-                        {competitionMarks[fixture.competition ?? "league"]}
+                        <CompetitionBadge game={g} match={fixture} />
                         <br />
                         {fixture.score?.join(":")}
+                        {fixture.penalties && (
+                          <small>п. {fixture.penalties.join(":")}</small>
+                        )}
+                        {fixtures.length > 1 && (
+                          <small>+{fixtures.length - 1} матч</small>
+                        )}
                       </small>
                     </>
                   )}
@@ -223,7 +231,7 @@ export function CareerHub({
                 className="primary wide"
                 onClick={() => act(completeSeason)}
               >
-                Завершить еврокубковый сезон
+                Завершить оставшиеся турниры
               </button>
             )}
           {seasonComplete(g) && (

@@ -26,7 +26,7 @@ export function TransferDeal({
             {n?.status === "counter"
               ? `Клуб предлагает €${n.counter.toLocaleString("ru")}. Измените сумму или примите встречное предложение.`
               : n?.status === "club-agreed"
-                ? "Клубы договорились. Осталось подписать контракт."
+                ? `Согласовано €${n.fee.toLocaleString("ru")} и €${n.salary.toLocaleString("ru")}/нед. Осталось подписать контракт. Изменённое предложение нужно обсудить заново.`
                 : "Согласуйте стоимость и зарплату игрока."}
           </p>
           <div className="actions">

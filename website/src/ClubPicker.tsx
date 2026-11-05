@@ -38,6 +38,38 @@ export const leagueThemes = [
     motto: "LE FOOTBALL NOUS RASSEMBLE",
   },
 ];
+leagueThemes.push(
+  ...[
+    {
+      name: "MLS",
+      country: "США / Канада",
+      color: "#60baff",
+      symbol: "★",
+      motto: "OUR SOCCER",
+    },
+    {
+      name: "Saudi Pro League",
+      country: "Саудовская Аравия",
+      color: "#75dd8e",
+      symbol: "✦",
+      motto: "NEW LEGENDS",
+    },
+    {
+      name: "Primeira Liga",
+      country: "Португалия",
+      color: "#ffb951",
+      symbol: "P",
+      motto: "PAIXÃO PELO FUTEBOL",
+    },
+    {
+      name: "Süper Lig",
+      country: "Турция",
+      color: "#ff6c83",
+      symbol: "S",
+      motto: "FUTBOL TUTKUSU",
+    },
+  ],
+);
 export function ClubPicker({
   clubs,
   value,
@@ -60,9 +92,9 @@ export function ClubPicker({
       <div className="club-picker-title">
         <div>
           <span className="eyebrow">ВЫБЕРИ СВОЮ ИСТОРИЮ</span>
-          <h3>Пять лиг. Твой первый клуб.</h3>
+          <h3>Девять лиг. Твой первый клуб.</h3>
         </div>
-        <span className="tag">96 клубов</span>
+        <span className="tag">{clubs.length} клубов</span>
       </div>
       <div className="league-picker-tabs" role="tablist" aria-label="Чемпионат">
         {leagueThemes.map((t, i) => (

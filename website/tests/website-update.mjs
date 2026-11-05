@@ -45,7 +45,7 @@ try {
   let g = await save(page);
   assert.equal(g.clubs[g.club].name, "Barcelona");
   assert.equal(g.careerMode, "match");
-  await page.getByRole("button", { name: "♜ Клуб" }).click();
+  await page.getByRole("button", { name: "Клуб", exact: true }).click();
   let before = (await save(page)).clubs[g.club].lineup;
   const bench = page.locator(".bench-player:not([disabled])").first();
   const incoming = +(await bench.getAttribute("data-bench-player"));
@@ -53,7 +53,7 @@ try {
   g = await waitSave(page, (g) => g.clubs[g.club].lineup[8] === incoming);
   assert.equal(new Set(g.clubs[g.club].lineup).size, 11);
   console.log("PASS desktop bench-to-pitch drag");
-  await page.getByRole("button", { name: "▦ Карьера" }).click();
+  await page.getByRole("button", { name: "Карьера", exact: true }).click();
   assert.equal(
     await page.getByRole("button", { name: "Промотать неделю" }).count(),
     0,
@@ -82,7 +82,7 @@ try {
   );
   const tp = await touch.newPage();
   await tp.goto(base);
-  await tp.getByRole("button", { name: "♜ Клуб" }).click();
+  await tp.getByRole("button", { name: "Клуб", exact: true }).click();
   const handle = tp
     .locator(".bench-player:not([disabled]) .drag-handle")
     .first();
@@ -147,10 +147,12 @@ try {
       .goals,
     0,
   );
-  await page
-    .getByText("VAR: гол отменён — счёт не изменился", { exact: false })
-    .first()
-    .waitFor();
+  assert.ok(
+    review.live.events.some(
+      (e) => e.type === "var" && e.text.includes("гол отменён"),
+    ),
+  );
+  assert.equal(await page.locator(".live-events .var").count(), 0);
   fixture.live.pendingVAR.decision = "confirm";
   await page.evaluate((g) => {
     localStorage.setItem("fl-slot-1", JSON.stringify(g));
@@ -177,7 +179,7 @@ try {
     localStorage.removeItem("fl-live-1");
   });
   await page.reload();
-  await page.getByRole("button", { name: "▤ Турниры" }).click();
+  await page.getByRole("button", { name: "Турниры", exact: true }).click();
   await page
     .getByRole("button", { name: "Смотреть матч клуба · 10 сек." })
     .click();
@@ -186,7 +188,7 @@ try {
   await page.getByRole("button", { name: "Пауза", exact: true }).click();
   console.log("PASS UCL page opens dedicated match centre");
   console.log(
-    "Player photos are disabled in v2.2; no remote lookup is part of the interface",
+    "Player photos are disabled in v2.3; no remote lookup is part of the interface",
   );
   const calendarPage = await browser.newPage();
   await calendarPage.goto(base);

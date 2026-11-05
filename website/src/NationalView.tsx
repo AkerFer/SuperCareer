@@ -1,3 +1,5 @@
+import { useState } from "react";
+import type { NationalCup } from "./world-types";
 import type { Game } from "./engine";
 import { advanceNational, nationalNames } from "./international";
 import { groupTable } from "./continental";
@@ -42,33 +44,7 @@ export function NationalView({
               Симулировать игровой день
             </button>
           )}
-          <div className="bracket">
-            {(["r32", "r16", "qf", "sf", "final"] as const).map((stage) => (
-              <section
-                key={stage}
-                hidden={!c.matches.some((m) => m.stage === stage)}
-              >
-                <h3>{stage}</h3>
-                {c.matches
-                  .filter((m) => m.stage === stage)
-                  .map((m) => (
-                    <div className="bracket-tie" key={m.id}>
-                      <p>
-                        {c.teams[m.home].name}
-                        <b>{m.score?.[0] ?? "—"}</b>
-                      </p>
-                      <p>
-                        {c.teams[m.away].name}
-                        <b>{m.score?.[1] ?? "—"}</b>
-                      </p>
-                      {m.penalties && (
-                        <small>Пенальти {m.penalties.join(":")}</small>
-                      )}
-                    </div>
-                  ))}
-              </section>
-            ))}
-          </div>
+          <NationalBracket cup={c} />
           <div className="award-grid">
             {c.groups.map((ids, i) => (
               <div key={i}>
@@ -95,5 +71,62 @@ export function NationalView({
         ))}
       </section>
     </>
+  );
+}
+
+function NationalBracket({ cup: c }: { cup: NationalCup }) {
+  const names = {
+    r32: "1/16 финала",
+    r16: "1/8 финала",
+    qf: "Четвертьфинал",
+    sf: "Полуфинал",
+    final: "Финал",
+  };
+  const available = (["r32", "r16", "qf", "sf", "final"] as const).filter(
+    (stage) => c.matches.some((m) => m.stage === stage),
+  );
+  const [selected, setSelected] = useState<string>("");
+  const current = available.includes(selected as (typeof available)[number])
+    ? selected
+    : available.at(-1);
+  return (
+    <div className="knockout-board">
+      <div className="bracket-stage-tabs">
+        {available.map((stage) => (
+          <button
+            key={stage}
+            className={current === stage ? "active" : ""}
+            onClick={() => setSelected(stage)}
+          >
+            {names[stage]}
+          </button>
+        ))}
+      </div>
+      <div className="bracket">
+        {available.map((stage) => (
+          <section
+            key={stage}
+            className={current === stage ? "current-stage" : ""}
+          >
+            <h3>{names[stage]}</h3>
+            {c.matches
+              .filter((m) => m.stage === stage)
+              .map((m) => (
+                <div className="bracket-tie" key={m.id}>
+                  {[m.home, m.away].map((id, i) => (
+                    <p key={id} className={m.winner === id ? "tie-winner" : ""}>
+                      {c.teams[id].name}
+                      <b>{m.score?.[i] ?? "—"}</b>
+                    </p>
+                  ))}
+                  {m.penalties && (
+                    <small>Пенальти {m.penalties.join(":")}</small>
+                  )}
+                </div>
+              ))}
+          </section>
+        ))}
+      </div>
+    </div>
   );
 }

@@ -40,6 +40,7 @@ export const totals = (): CoachTotals => ({
   ga: 0,
   seasons: 0,
 });
+import { initializeDomestic, advanceDomestic } from "./domestic";
 export function initializeCareer(g: Game) {
   if (!g.database) applyRealDatabase(g, true);
   g.edition = 2;
@@ -73,7 +74,10 @@ export function initializeCareer(g: Game) {
     initializeContinental(g);
   }
   if (!g.international) initializeInternationals(g);
+  if (!g.domestic) initializeDomestic(g);
 }
+import { enrichWorld } from "./expand-world";
+import { refreshPrices } from "./pricing";
 import { applyCardRatings } from "./fc-ratings";
 export function migrateGame(g: Game) {
   if (!g.rolesVersion) {
@@ -81,12 +85,15 @@ export function migrateGame(g: Game) {
     g.rolesVersion = 1;
   }
   g.careerMode ??= "calendar";
+  enrichWorld(g);
+  refreshPrices(g);
   applyCardRatings(g);
 
   if (
     g.edition !== 2 ||
     !g.europe ||
     !g.awards ||
+    !g.domestic ||
     !g.coach ||
     !g.continental ||
     !g.international
@@ -95,6 +102,7 @@ export function migrateGame(g: Game) {
   return g;
 }
 import {
+  nationalityKey,
   initializeInternationals,
   advanceInternationals,
 } from "./international";
@@ -105,12 +113,16 @@ import {
   advanceCup,
   recordTrophy,
 } from "./continental";
+export const uefaQuota = (g: Game, l: number) =>
+  g.clubs.some((c) => c.league === 7)
+    ? ([7, 6, 6, 5, 5, 0, 0, 4, 3][l] ?? 0)
+    : ([8, 7, 7, 7, 7][l] ?? 0);
 export function initializeEurope(g: Game, teams?: number[]) {
   teams ??= leagues.flatMap((_, l) =>
     g.clubs
       .filter((c) => c.league === l)
       .sort((a, b) => b.strength - a.strength || a.id - b.id)
-      .slice(0, l === 0 ? 8 : 7)
+      .slice(0, uefaQuota(g, l))
       .map((c) => c.id),
   );
   const ids = [...teams];
@@ -337,6 +349,7 @@ export function advanceEuropeCalendar(g: Game, throughDate?: string) {
 export function seasonComplete(g: Game) {
   return (
     g.matches.every((m) => !!m.score) &&
+    Object.values(g.domestic ?? {}).every((c) => c.winner !== undefined) &&
     g.europe?.stage === "complete" &&
     Object.values(g.continental ?? {}).every((c) => c.stage === "complete") &&
     (g.international ?? []).every((c) => c.stage === "complete") &&
@@ -349,6 +362,10 @@ export function completeSeason(g: Game) {
   while (g.europe?.stage !== "complete") advanceEurope(g);
   for (const c of Object.values(g.continental ?? {}))
     while (c.stage !== "complete") advanceCup(g, c.id);
+  for (const c of Object.values(g.domestic ?? {})) {
+    let guard = 0;
+    while (c.winner === undefined && guard++ < 8) advanceDomestic(g, c.key);
+  }
   advanceInternationals(g);
   finalizeSeason(g);
 }
@@ -369,6 +386,18 @@ export function creditStatistics(g: Game, m: Match, before: PlayerBefore[]) {
       (Object.keys(p.stats) as (keyof Stats)[]).forEach((k) => {
         p[key]![k] += p.stats[k] - saved.stats[k];
       });
+    }
+    if (p.club !== null) {
+      p.clubHistory ??= [];
+      let row = p.clubHistory.find(
+        (r) => r.season === g.season && r.club === p.club,
+      );
+      if (!row) {
+        row = { season: g.season, club: p.club, ...emptyStats() };
+        p.clubHistory.push(row);
+      }
+      for (const key of Object.keys(p.stats) as (keyof Stats)[])
+        row[key] += p.stats[key] - saved.stats[key];
     }
     const side = p.club === m.home ? 0 : 1;
     const rating = Math.max(
@@ -410,11 +439,26 @@ export function archiveCoachSeason(g: Game) {
 }
 export const averageRating = (p: Player) =>
   (p.ratedApps ?? 0) ? (p.ratingSum ?? 0) / p.ratedApps! : 0;
+export function internationalTrophies(g: Game, p: Player) {
+  return (g.international ?? []).filter(
+    (c) =>
+      c.winner !== undefined &&
+      c.teams[c.winner]?.name === nationalityKey(p.nation) &&
+      (p.nationalBySeason?.[g.season]?.apps ?? 0) > 0,
+  );
+}
+const nationalTrophyPoints = (g: Game, p: Player) =>
+  internationalTrophies(g, p).reduce(
+    (sum, c) => sum + (c.id === "worldcup" ? 45 : 25),
+    0,
+  );
 export function finalizeSeason(g: Game) {
   if (!seasonComplete(g)) throw Error("Сезон ещё не завершён");
   g.awards ??= [];
   if (g.awards.some((a) => a.season === g.season)) return;
-  const champions = leagues.map((_, l) => table(g, l)[0].club.id);
+  const champions = leagues
+    .filter((_, l) => g.clubs.some((c) => c.league === l))
+    .map((_, l) => table(g, l)[0]?.club.id);
   const ucl = g.europe!.winner;
   const titles = (p: Player) =>
     champions.filter((c) => (p.seasonClubs ?? []).includes(c)).length +
@@ -424,7 +468,11 @@ export function finalizeSeason(g: Game) {
         t.season === g.season &&
         t.competition !== "ucl" &&
         (p.seasonClubs ?? []).includes(t.winner),
-    ).length;
+    ).length +
+    (g.domesticHistory ?? []).filter(
+      (t) => t.season === g.season && (p.seasonClubs ?? []).includes(t.winner),
+    ).length *
+      0.5;
   const nominee = (p: Player, score: number, detail: string): AwardNominee => ({
     id: p.id,
     name: p.name,
@@ -463,12 +511,31 @@ export function finalizeSeason(g: Game) {
         team,
       });
   };
-  const influence = (p: Player) =>
-    p.stats.goals * 4 +
-    p.stats.assists * 3 +
-    averageRating(p) * 10 +
-    titles(p) * 25 +
-    (p.europeanStats?.goals ?? 0) * 2;
+  const strength = [1, 1, 0.95, 0.95, 0.9, 0.55, 0.55, 0.8, 0.7];
+  const influence = (p: Player) => {
+    const weight =
+      p.club === null ? 0.7 : (strength[g.clubs[p.club].league] ?? 0.7);
+    let leagueGoals = 0,
+      leagueAssists = 0;
+    for (const [league, stats] of Object.entries(p.leagueById ?? {})) {
+      leagueGoals += (stats?.goals ?? 0) * (strength[+league] ?? 0.7);
+      leagueAssists += (stats?.assists ?? 0) * (strength[+league] ?? 0.7);
+    }
+    return (
+      leagueGoals * 4 +
+      leagueAssists * 3 +
+      (p.stats.goals - (p.leagueStats?.goals ?? 0)) * 4 * weight +
+      (p.stats.assists - (p.leagueStats?.assists ?? 0)) * 3 * weight +
+      averageRating(p) * 10 * Math.min(1, (p.ratedApps ?? 0) / 25) * weight +
+      titles(p) * 18 * weight +
+      (p.europeanStats?.goals ?? 0) * 3 +
+      (p.nationalBySeason?.[g.season]?.goals ?? 0) * 2 +
+      nationalTrophyPoints(g, p) +
+      (p.pos === "GK" ? p.stats.clean * 2.5 * weight : 0) -
+      p.stats.yellow * 0.25 -
+      p.stats.red * 3
+    );
+  };
   const detail = (p: Player) =>
     `${p.stats.goals} голов · ${p.stats.assists} передач · оценка ${averageRating(p).toFixed(2)}`;
   const world = ranking(g.players, influence, detail);
@@ -477,7 +544,7 @@ export function finalizeSeason(g: Game) {
     "Ballon d’Or — Золотой мяч",
     "world",
     world,
-    "4 × голы + 3 × передачи + 10 × средняя оценка + 25 × вес трофеев + 2 × голы ЛЧ",
+    "Игровая модель критериев France Football: индивидуальный вклад с поправкой на силу лиги и игровое время, трофеи клубов и сборных (ЧМ +45, EURO/Copa +25), выступления в ЛЧ и сборной, fair play (−0,25 за ЖК, −3 за КК). Это не официальное голосование жюри.",
   );
   add(
     "shoe",
@@ -485,10 +552,16 @@ export function finalizeSeason(g: Game) {
     "world",
     ranking(
       g.players,
-      (p) => (p.leagueStats?.goals ?? 0) * 2,
-      (p) => `${p.leagueStats?.goals ?? 0} голов в лигах × 2`,
+      (p) =>
+        Object.entries(p.leagueById ?? {}).reduce(
+          (sum, [l, s]) =>
+            sum + (s?.goals ?? 0) * ([2, 2, 2, 2, 2, 0, 0, 1.5, 1.5][+l] ?? 0),
+          0,
+        ),
+      (p) =>
+        `${p.leagueStats?.goals ?? 0} голов · коэффициенты европейских лиг`,
     ),
-    "Только голы национальных чемпионатов × коэффициент 2 (все пять топ-лиг)",
+    "Только европейские лиги: топ-5 × 2, Португалия и Турция × 1,5. MLS и Саудовская Аравия не участвуют.",
   );
   add(
     "fifa-player",
@@ -499,7 +572,9 @@ export function finalizeSeason(g: Game) {
   );
   const gk = ranking(
     g.players.filter((p) => p.pos === "GK"),
-    (p) => p.stats.clean * 5 + averageRating(p) * 8 + titles(p) * 15,
+    (p) =>
+      (p.stats.clean * 5 + averageRating(p) * 8 + titles(p) * 15) *
+      (p.club === null ? 0.7 : (strength[g.clubs[p.club].league] ?? 0.7)),
     (p) =>
       `${p.stats.clean} сухих матчей · оценка ${averageRating(p).toFixed(2)}`,
   );
@@ -622,9 +697,8 @@ export function finalizeSeason(g: Game) {
         name: c.id === g.club ? g.manager : `Тренер ${c.name}`,
         club: c.name,
         score:
-          wins * 3 +
-          draws +
-          (champions.includes(c.id) ? 35 : 0) +
+          (wins * 3 + draws) * (strength[c.league] ?? 0.7) +
+          (champions.includes(c.id) ? 35 * (strength[c.league] ?? 0.7) : 0) +
           (ucl === c.id ? 60 : 0),
         detail: `${wins} побед · ${draws} ничьих`,
       };
@@ -709,8 +783,13 @@ export function finalizeSeason(g: Game) {
   const winner = g.players.find((p) => p.id === world[0]?.id);
   if (winner) winner.ballon = (winner.ballon ?? 0) + 1;
   g.players.forEach((p) => {
+    const domesticTitles = (g.domesticHistory ?? []).filter(
+      (t) => t.season === g.season && (p.seasonClubs ?? []).includes(t.winner),
+    ).length;
     p.trophies =
       (p.trophies ?? 0) +
+      internationalTrophies(g, p).length +
+      domesticTitles +
       champions.filter((c) => (p.seasonClubs ?? []).includes(c)).length +
       (ucl !== undefined && (p.seasonClubs ?? []).includes(ucl) ? 1 : 0) +
       (g.cupHistory ?? []).filter(

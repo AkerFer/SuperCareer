@@ -20,12 +20,20 @@ import {
   emptyStats,
 } from "./engine";
 import "./style.css";
+import "./update23.css";
 import { exportCareer } from "./export";
-import { migrateGame, seasonComplete, completeSeason } from "./career";
+import {
+  migrateGame,
+  seasonComplete,
+  completeSeason,
+  uefaQuota,
+} from "./career";
 import { beginLive, tickLive, resolveVAR, cloneLiveFrame } from "./live";
 import { LineupView } from "./LineupView";
 import { LiveView } from "./LiveView";
-import { DataImport } from "./DataImport";
+import { Appearance, Startup } from "./Appearance";
+import { NavIcon } from "./NavIcon";
+import { PlayerDetails } from "./PlayerProfile";
 import { TransferDeal } from "./TransferDeal";
 import { windowOpen } from "./market";
 import {
@@ -92,7 +100,6 @@ function App() {
   function persist(next: Game, replace = false) {
     try {
       saveSlot(slot, next, replace || (!!next.live && tab !== "Центр матча"));
-      setMsg("Карьера сохранена");
     } catch {
       setMsg("Не удалось сохранить: хранилище заполнено. Экспортируйте JSON.");
     }
@@ -251,6 +258,7 @@ function App() {
   }
   return (
     <>
+      <Startup />
       <div className="app">
         <aside>
           <a className="brand" onClick={() => setTab("Главная")}>
@@ -261,7 +269,7 @@ function App() {
               <b>LEGACY</b>
             </span>
           </a>
-          <span className="eyebrow">CAREER SIMULATOR · WEB UPDATE</span>
+          <span className="eyebrow">CAREER SIMULATOR · 2.3</span>
           <nav>
             {tabs.map((t, i) => (
               <button
@@ -269,26 +277,7 @@ function App() {
                 className={tab === t ? "active" : ""}
                 onClick={() => navigate(t)}
               >
-                <span>
-                  {
-                    (
-                      {
-                        Главная: "◈",
-                        Карьера: "▦",
-                        Клуб: "♜",
-                        Матчи: "⚽",
-                        "Центр матча": "▶",
-                        Трансферы: "⇄",
-                        Турниры: "▤",
-                        Статистика: "▥",
-                        Награды: "♛",
-                        Тренер: "♟",
-                        "Зал славы": "★",
-                        Настройки: "⚙",
-                      } as Record<string, string>
-                    )[t]
-                  }
-                </span>
+                <NavIcon index={i} />
                 {t}
               </button>
             ))}
@@ -336,7 +325,7 @@ function App() {
                     <em>футбольную империю.</em>
                   </h1>
                   <p>
-                    Пять лиг. Тысячи игроков. Десятки сезонов.
+                    Девять лиг. Тысячи игроков. Десятки сезонов.
                     <br />
                     Один тренер, который изменит всё.
                   </p>
@@ -831,7 +820,7 @@ function App() {
                       onPlayer={(id) => {
                         const p = g.players.find((p) => p.id === id)!;
                         setSelected(p);
-                        setFee(p.value);
+                        setFee(p.club === null ? 0 : p.value);
                         setWage(p.salary);
                       }}
                     />
@@ -1112,7 +1101,7 @@ function App() {
                                   <td>
                                     <span
                                       className={
-                                        i < (league === 0 ? 8 : 7)
+                                        i < uefaQuota(g, league)
                                           ? "rank top"
                                           : "rank"
                                       }
@@ -1145,9 +1134,9 @@ function App() {
                           </table>
                         </div>
                         <p className="muted">
-                          Квалификация ЛЧ: топ-8 Англии и топ-7 остальных лиг.
-                          Игровой отбор среди пяти чемпионатов. Нижних
-                          дивизионов нет.
+                          Квалификация ЛЧ: Англия 7, Испания и Италия 6,
+                          Германия и Франция 5, Португалия 4, Турция 3. Игровой
+                          отбор среди пяти чемпионатов. Нижних дивизионов нет.
                         </p>
                       </section>
                     </CupHub>
@@ -1205,7 +1194,7 @@ function App() {
                                   key={p.id}
                                   onClick={() => {
                                     setSelected(p);
-                                    setFee(p.value);
+                                    setFee(p.club === null ? 0 : p.value);
                                     setWage(p.salary);
                                   }}
                                 >
@@ -1301,7 +1290,7 @@ function App() {
                 )}
                 {tab === "Настройки" && (
                   <>
-                    <DataImport act={act} />
+                    <Appearance />
                     <section className="panel">
                       <h1>Твоя карьера под контролем</h1>
                       <p>
@@ -1386,11 +1375,11 @@ function App() {
                         взяты из FC 26; остальные характеристики и финансы —
                         модель симулятора.
                       </p>
-                      <h3>Football Legacy 2.2</h3>
+                      <h3>Football Legacy 2.3</h3>
                       <p className="muted">
                         ЛЧ, ЛЕ, ЛК, Суперкубок, летние турниры сборных, аренды,
                         переговоры, травмы по датам и награды доступны в сайте и
-                        APK 2.2. Смена клуба пока не реализована.
+                        APK 2.3. Смена клуба пока не реализована.
                       </p>
                     </section>
                   </>
@@ -1517,6 +1506,7 @@ function App() {
               Фотографии игроков временно отключены до подключения отдельной
               базы.
             </p>
+            <PlayerDetails game={g} player={currentPlayer} />
             <TransferDeal
               game={g}
               player={currentPlayer}

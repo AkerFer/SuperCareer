@@ -18,6 +18,17 @@ export function LiveView({
   const [showLineup, setShowLineup] = useState(false);
   const live = g.live;
   const [goalNotice, setGoalNotice] = useState<string | undefined>();
+  const [temporary, setTemporary] = useState<string>();
+  const other = live?.events.filter((e) => e.type !== "goal").at(-1);
+  const otherKey = other
+    ? `${live?.matchId}:${other.minute}:${other.player}:${other.type}`
+    : "";
+  useEffect(() => {
+    if (!other) return;
+    setTemporary(other.text);
+    const t = setTimeout(() => setTemporary(undefined), 1800);
+    return () => clearTimeout(t);
+  }, [otherKey]);
   const goal = live?.events.filter((e) => e.type === "goal").at(-1);
   const goalKey = goal ? `${live?.matchId}:${goal.minute}:${goal.player}` : "";
   useEffect(() => {
@@ -64,6 +75,11 @@ export function LiveView({
             <b>{away.name}</b>
           </div>
         </div>
+        {temporary && live.status !== "review" && (
+          <div className="temporary-event" role="status" key={otherKey}>
+            {temporary}
+          </div>
+        )}
         {goalNotice && (
           <div className="goal-notice" key={goalKey} role="status">
             <strong>⚽ ГОЛ!</strong>
@@ -89,39 +105,42 @@ export function LiveView({
           симуляции
         </p>
         <div className="live-events" aria-live="polite">
-          {!live.events.length && (
+          {!live.events.some((e) => e.type === "goal") && (
             <p className="muted center">Команды ищут свободные зоны…</p>
           )}
-          {[...live.events].reverse().map((e, i) => (
-            <div
-              className={`live-event ${e.type}`}
-              key={e.minute + "-" + e.player + "-" + i}
-            >
-              <span>{e.minute}′</span>
-              <Photo
-                src={g.players.find((p) => p.id === e.player)?.photo}
-                name={g.players.find((p) => p.id === e.player)?.name ?? ""}
-                real={g.players.find((p) => p.id === e.player)?.real}
-              />
-              <div>
-                <b>
-                  {e.type === "var"
-                    ? "▣ VAR"
-                    : e.type === "goal"
-                      ? "⚽ ГОЛ!"
-                      : e.type === "injury"
-                        ? "✚ Травма"
-                        : e.type === "red"
-                          ? "🟥 Удаление"
-                          : e.type === "sub"
-                            ? "⇄ Замена"
-                            : "🟨 Предупреждение"}
-                </b>
-                <small>{e.text.slice(e.text.indexOf(" ") + 1)}</small>
+          {[...live.events]
+            .filter((e) => e.type === "goal")
+            .reverse()
+            .map((e, i) => (
+              <div
+                className={`live-event ${e.type}`}
+                key={e.minute + "-" + e.player + "-" + i}
+              >
+                <span>{e.minute}′</span>
+                <Photo
+                  src={g.players.find((p) => p.id === e.player)?.photo}
+                  name={g.players.find((p) => p.id === e.player)?.name ?? ""}
+                  real={g.players.find((p) => p.id === e.player)?.real}
+                />
+                <div>
+                  <b>
+                    {e.type === "var"
+                      ? "▣ VAR"
+                      : e.type === "goal"
+                        ? "⚽ ГОЛ!"
+                        : e.type === "injury"
+                          ? "✚ Травма"
+                          : e.type === "red"
+                            ? "🟥 Удаление"
+                            : e.type === "sub"
+                              ? "⇄ Замена"
+                              : "🟨 Предупреждение"}
+                  </b>
+                  <small>{e.text.slice(e.text.indexOf(" ") + 1)}</small>
+                </div>
+                <small>{e.side === 0 ? home.name : away.name}</small>
               </div>
-              <small>{e.side === 0 ? home.name : away.name}</small>
-            </div>
-          ))}
+            ))}
         </div>
         <div className="match-scorers" aria-label="Авторы голов">
           {([0, 1] as const).map((side) => (

@@ -1,4 +1,6 @@
+import { allClubMatches } from "./continental";
 import { resolveVAR } from "./live";
+import { uefaQuota } from "./career";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -12,12 +14,12 @@ import {
 } from "./engine";
 test("five leagues have balanced double round-robin calendars", () => {
   const g = createGame("Alex", "England", 0, "Обычно", 2025, 42);
-  assert.equal(g.clubs.length, 96);
-  assert.equal(g.players.length, 2112);
+  assert.equal(g.clubs.length, 180);
+  assert.equal(g.players.length, 3960);
   for (const c of g.clubs) {
     const matches = g.matches.filter((m) => m.home === c.id || m.away === c.id);
     const n = g.clubs.filter((x) => x.league === c.league).length;
-    assert.equal(matches.length, (n - 1) * 2);
+    assert.equal(matches.length, c.league === 5 ? 34 : (n - 1) * 2);
     assert.equal(new Set(matches.map((m) => m.round)).size, matches.length);
     assert.equal(c.lineup.length, 11);
   }
@@ -28,10 +30,12 @@ test("match updates standings, scorers and appearances; one match does not doubl
   assert.equal(g.matches.filter((m) => m.score).length, 1);
   advance(g);
   const ms = g.matches.filter((m) => m.score);
-  assert.equal(ms.length, 48);
+  assert.equal(ms.length, g.matches.filter((m) => m.round === 0).length);
   assert.equal(
     g.players.reduce((s, p) => s + p.stats.goals, 0),
-    ms.reduce((s, m) => s + m.score![0] + m.score![1], 0),
+    allClubMatches(g)
+      .filter((m) => m.score)
+      .reduce((s, m) => s + m.score![0] + m.score![1], 0),
   );
   assert.equal(
     table(g, 0).reduce((s, r) => s + r.played, 0),
@@ -39,7 +43,7 @@ test("match updates standings, scorers and appearances; one match does not doubl
   );
   assert.equal(
     g.players.reduce((s, p) => s + p.stats.apps, 0),
-    48 * 22,
+    allClubMatches(g).filter((m) => m.score).length * 22,
   );
 });
 test("transfers conserve budgets and move player, failures are atomic", () => {
@@ -79,6 +83,7 @@ test("30-season career preserves history and can round-trip JSON", () => {
     assert.equal(g.round, 0);
     assert.ok(g.clubs.every((c) => squad(g, c.id).length >= 16));
     assert.ok(validateSave(JSON.parse(JSON.stringify(g))));
+    if((s+1)%5===0)console.log(`Career verified: ${s+1}/30 seasons`);
   }
   assert.equal(g.history.length, 30);
   assert.equal(g.awards!.length, 30);
@@ -161,9 +166,14 @@ test("awards are deterministic, Golden Shoe excludes European goals, coach and q
   assert.equal(g.awards!.length, 1);
   const a = g.awards![0];
   assert.equal(a.awards.find((a) => a.id === "ballon")!.nominees.length, 30);
+  const shoeScore = (p: (typeof g.players)[number]) =>
+    Object.entries(p.leagueById ?? {}).reduce(
+      (sum, [l, stats]) =>
+        sum + (stats?.goals ?? 0) * ([2, 2, 2, 2, 2, 0, 0, 1.5, 1.5][+l] ?? 0),
+      0,
+    );
   const top = [...g.players].sort(
-    (a, b) =>
-      (b.leagueStats?.goals ?? 0) - (a.leagueStats?.goals ?? 0) || a.id - b.id,
+    (a, b) => shoeScore(b) - shoeScore(a) || a.id - b.id,
   )[0];
   assert.equal(a.awards.find((a) => a.id === "shoe")!.winner.id, top.id);
   const before = JSON.stringify(a);
@@ -175,9 +185,9 @@ test("awards are deterministic, Golden Shoe excludes European goals, coach and q
   assert.equal(JSON.stringify(g.awards![0]), before);
   assert.equal(winner.ballon, 1);
   const coach = coachStats(g);
-  const qualifiers = Array.from({ length: 5 }, (_, l) =>
+  const qualifiers = Array.from({ length: 9 }, (_, l) =>
     table(g, l)
-      .slice(0, l === 0 ? 8 : 7)
+      .slice(0, uefaQuota(g, l))
       .map((r) => r.club.id),
   ).flat();
   nextSeason(g);
@@ -196,7 +206,7 @@ test("legacy save migration keeps progress and real names are marked separately 
   const g = createGame("Alex", "England", 0, "Обычно", 2025, 10);
   assert.ok(g.players.filter((p) => p.real).length > 1500);
   assert.ok(g.players.some((p) => p.name === "Kylian Mbappé"));
-  assert.ok(g.clubs.every((c) => c.logo));
+  assert.ok(g.clubs.filter((c) => c.league < 5).every((c) => c.logo));
   advance(g, 1);
   const budget = g.clubs[0].budget;
   delete g.edition;
@@ -364,7 +374,10 @@ test("red-carded players cannot be replaced and a consecutive live game advances
   beginLive(g);
   assert.equal(g.round, 1);
   assert.equal(g.live!.minute, 0);
-  assert.equal(g.matches.filter((m) => m.round === 0 && m.score).length, 48);
+  assert.equal(
+    g.matches.filter((m) => m.round === 0 && m.score).length,
+    g.matches.filter((m) => m.round === 0).length,
+  );
   assert.ok(validateSave(g));
 });
 
@@ -453,15 +466,14 @@ test("calendar simulates dates while match mode preserves own domestic and UCL f
   manual.careerMode = "match";
   assert.throws(() => advanceCalendar(manual, 7), /каждый матч/);
   assert.throws(() => advance(manual, 1), /Сначала сыграйте/);
-  for (let i = 0; i < 3; i++) {
+  const competitions = new Set<string>();
+  for (let i = 0; i < 12; i++) {
     beginNextCareerMatch(manual);
-    assert.equal(manual.live!.competition, "league");
+    competitions.add(manual.live!.competition);
     skipLive(manual);
   }
-  beginNextCareerMatch(manual);
-  assert.equal(manual.live!.competition, "ucl");
-  skipLive(manual);
-  beginNextCareerMatch(manual);
-  assert.equal(manual.live!.competition, "league");
+  assert.ok(competitions.has("league"));
+  assert.ok(competitions.has("ucl"));
+  assert.ok(competitions.has("domestic"));
   assert.ok(validateSave(manual));
 });

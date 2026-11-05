@@ -1,4 +1,4 @@
-import { random, type Game } from "./engine";
+import { emptyStats, random, type Game } from "./engine";
 import type { NationalCup, NationalTeam, CupStage } from "./world-types";
 import { addDays } from "./dates";
 import { groupTable } from "./continental";
@@ -194,6 +194,50 @@ export function advanceNational(g: Game, c: NationalCup) {
       poisson(g, Math.max(0.4, 1.25 + (a.strength - b.strength) / 20)),
       poisson(g, Math.max(0.4, 1.25 + (b.strength - a.strength) / 20)),
     ];
+    for (const side of [0, 1] as const) {
+      const team = side === 0 ? a : b;
+      const available = g.players
+        .filter((p) => nationalityKey(p.nation) === team.name && !p.injury)
+        .sort((a, b) => b.rating - a.rating);
+      const keeper = available.find((p) => p.pos === "GK");
+      const squad = [
+        ...(keeper ? [keeper] : []),
+        ...available.filter((p) => p.pos !== "GK").slice(0, keeper ? 10 : 11),
+      ];
+      for (const p of squad) {
+        p.nationalStats ??= emptyStats();
+        p.nationalBySeason ??= {};
+        p.nationalBySeason[g.season] ??= emptyStats();
+        p.nationalStats.apps++;
+        p.nationalBySeason[g.season].apps++;
+        if (p.pos === "GK" && m.score[1 - side] === 0) {
+          p.nationalStats.clean++;
+          p.nationalBySeason[g.season].clean++;
+        }
+      }
+      const scorers = squad.filter((p) => p.pos !== "GK");
+      for (let goal = 0; goal < m.score[side] && scorers.length; goal++) {
+        const weighted = scorers.flatMap((p) =>
+          Array.from(
+            { length: ["ST", "CF", "LW", "RW"].includes(p.pos) ? 4 : 1 },
+            () => p,
+          ),
+        );
+        const scorer = weighted[Math.floor(random(g) * weighted.length)];
+        scorer.nationalStats!.goals++;
+        scorer.nationalBySeason![g.season].goals++;
+        const helpers = scorers.filter((p) => p.id !== scorer.id);
+        if (helpers.length && random(g) < 0.7) {
+          const helper = helpers[Math.floor(random(g) * helpers.length)];
+          helper.nationalStats!.assists++;
+          helper.nationalBySeason![g.season].assists++;
+        }
+        m.events ??= [];
+        m.events.push(
+          `${Math.floor(((goal + 1) * 90) / (m.score[side] + 1))}′ ${scorer.name} — гол`,
+        );
+      }
+    }
     if (c.stage !== "groups") {
       if (m.score[0] === m.score[1]) {
         m.penalties = random(g) < 0.5 ? [5, 4] : [4, 5];
@@ -266,3 +310,13 @@ export function advanceInternationals(g: Game, throughDate?: string) {
     }
   }
 }
+
+const nationalAliases: Record<string, string> = {
+  "United States": "USA",
+  "Korea Republic": "South Korea",
+  Turkey: "Türkiye",
+  "Czech Republic": "Czechia",
+  "Côte d’Ivoire": "Ivory Coast",
+};
+
+export const nationalityKey = (name: string) => nationalAliases[name] ?? name;

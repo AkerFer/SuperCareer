@@ -12,6 +12,7 @@ import {
 } from "./continental";
 import type { Competition } from "./discipline";
 import { advanceInternationals } from "./international";
+import { domesticCalendar } from "./domestic";
 import { recoverInjuries } from "./injuries";
 export const europeanDates = [
   3, 6, 9, 12, 15, 18, 21, 24, 26, 27, 28, 29, 30, 31, 32, 33, 35,
@@ -45,6 +46,7 @@ export function beginNextCareerMatch(g: Game) {
     advance(g, 1);
   advanceEuropeCalendar(g);
   advanceContinentalCalendar(g);
+  domesticCalendar(g);
   const next = nextCareerMatch(g);
   if (!next)
     throw Error(
@@ -68,6 +70,7 @@ export function advanceCalendar(g: Game, days: number) {
     advance(g, 1, false, target);
   advanceEuropeCalendar(g, target);
   advanceContinentalCalendar(g, target);
+  domesticCalendar(g, target);
   advanceInternationals(g, target);
   recoverInjuries(g, target);
   g.calendarDay = target;

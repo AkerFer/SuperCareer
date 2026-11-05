@@ -1,3 +1,4 @@
+import { prepareDomestic, domesticDay, settleDomestic } from "./domestic";
 import { assignCard, banFor, serveBans } from "./discipline";
 import { makeSubstitution } from "./lineup";
 import { roleFamily, formationRows, positionMultiplier } from "./tactics";
@@ -28,18 +29,26 @@ export function liveFixture(g: Game) {
 export function beginLive(g: Game, competition: Competition = "league") {
   migrateGame(g);
   if (g.live && g.live.status !== "finished") return;
+  if (competition === "domestic") prepareDomestic(g);
   let m =
-    competition !== "ucl" && competition !== "league"
-      ? cupDay(g.continental![competition]!).find(
-          (m) => !m.score && (m.home === g.club || m.away === g.club),
-        )
-      : competition === "ucl"
-        ? europeanDayFixtures(g).find(
+    competition === "domestic"
+      ? Object.values(g.domestic ?? {})
+          .flatMap(domesticDay)
+          .filter((m) => !m.score && (m.home === g.club || m.away === g.club))
+          .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""))[0]
+      : competition !== "ucl" && competition !== "league"
+        ? cupDay(g.continental![competition]!).find(
             (m) => !m.score && (m.home === g.club || m.away === g.club),
           )
-        : g.matches
-            .filter((m) => m.round === g.round)
-            .find((m) => !m.score && (m.home === g.club || m.away === g.club));
+        : competition === "ucl"
+          ? europeanDayFixtures(g).find(
+              (m) => !m.score && (m.home === g.club || m.away === g.club),
+            )
+          : g.matches
+              .filter((m) => m.round === g.round)
+              .find(
+                (m) => !m.score && (m.home === g.club || m.away === g.club),
+              );
   if (
     !m &&
     competition === "league" &&
@@ -167,6 +176,7 @@ function finish(g: Game, m: Match, live: LiveMatch) {
   serveBans(g, live.bansAtStart ?? [], live.competition);
   creditStatistics(g, m, live.before);
   if (live.competition === "ucl") settleEuropeanDay(g);
+  else if (live.competition === "domestic") settleDomestic(g, m.tournament!);
   else if (live.competition !== "league")
     settleCup(g, g.continental![live.competition]!);
   if (seasonComplete(g)) finalizeSeason(g);

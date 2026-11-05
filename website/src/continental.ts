@@ -2,6 +2,7 @@ import { playMatch, random, table, type Game, type Match } from "./engine";
 import type { Cup, ClubCupId, CupStage } from "./world-types";
 import { europeanDate, uclSlots } from "./dates";
 export const competitionNames = {
+  domestic: "Кубок страны",
   league: "Чемпионат",
   ucl: "UEFA Champions League",
   uel: "UEFA Europa League",
@@ -9,6 +10,7 @@ export const competitionNames = {
   supercup: "UEFA Super Cup",
 };
 export const competitionMarks = {
+  domestic: "🏆 Кубок",
   league: "Лига",
   ucl: "★ ЛЧ",
   uel: "◆ ЛЕ",
@@ -19,6 +21,7 @@ const offsets = { uel: 200000, uecl: 300000, supercup: 400000 };
 export function allClubMatches(g: Game) {
   return [
     ...g.matches,
+    ...Object.values(g.domestic ?? {}).flatMap((c) => c.matches),
     ...(g.europe?.matches ?? []),
     ...Object.values(g.continental ?? {}).flatMap((c) => c.matches),
   ];
@@ -108,9 +111,9 @@ export function initializeContinental(g: Game, rankings?: number[][]) {
   const excluded = new Set(g.europe!.teams);
   const rest =
     rankings ??
-    Array.from({ length: 5 }, (_, l) =>
+    Array.from({ length: 9 }, (_, l) =>
       g.clubs
-        .filter((c) => c.league === l)
+        .filter((c) => c.league === l && l!==5 && l!==6)
         .sort((a, b) => b.strength - a.strength)
         .map((c) => c.id),
     );

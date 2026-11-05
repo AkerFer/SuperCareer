@@ -38,13 +38,16 @@ try {
   };
   await page.goto(process.env.BASE_URL || "http://127.0.0.1:5173");
   await page.getByRole("button", { name: "Подписать контракт" }).click();
-  await page.getByRole("button", { name: "◈ Главная" }).click();
+  await page.getByRole("button", { name: "Главная", exact: true }).click();
   await page
     .getByRole("heading", { name: "Твоя команда. Твоё наследие." })
     .waitFor();
   assert.ok((await getSave()).players.filter((p) => p.real).length > 1500);
-  await page.getByRole("button", { name: "♜ Клуб" }).click();
+  await page.getByRole("button", { name: "Клуб", exact: true }).click();
   await page.getByLabel("Футбольное поле", { exact: true }).waitFor();
+  await page
+    .getByRole("button", { name: "Менять состав", exact: true })
+    .click();
   let beforeLineup = (await getSave()).clubs[0].lineup;
   const pitchButton = page.locator(".pitch-player").first();
   const pitchIndex =
@@ -75,7 +78,7 @@ try {
     fullPage: true,
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByRole("button", { name: "◈ Главная" }).click();
+  await page.getByRole("button", { name: "Главная", exact: true }).click();
 
   const firstHalfStart = Date.now();
   await page.getByRole("button", { name: /Играть следующий матч/ }).click();
@@ -134,7 +137,8 @@ try {
   assert.equal(saved.matches.filter((m) => m.score).length, 1);
   assert.equal(saved.live.minute, 90);
   await page.getByRole("button", { name: "Готово" }).click();
-  await page.getByRole("button", { name: "⇄ Трансферы" }).click();
+  await page.getByRole("button", { name: "Трансферы", exact: true }).click();
+  await page.getByPlaceholder("Поиск по имени…").fill("Alisson");
   await page.locator(".player").first().click();
   await page.getByRole("button", { name: "Обсудить предложение" }).click();
   if (
@@ -153,12 +157,12 @@ try {
     .click();
   await waitSave("g.transfers.length>0");
   await page.getByRole("button", { name: "×", exact: true }).click();
-  await page.getByRole("button", { name: "▤ Турниры" }).click();
+  await page.getByRole("button", { name: "Турниры", exact: true }).click();
   assert.equal(await page.locator("tbody tr").count(), 36);
-  await page.getByRole("button", { name: "⚽ Матчи" }).click();
+  await page.getByRole("button", { name: "Матчи", exact: true }).click();
   await page.getByRole("button", { name: "До конца сезона" }).click();
   await waitSave("g.awards.length===1");
-  await page.getByRole("button", { name: "♛ Награды" }).click();
+  await page.getByRole("button", { name: "Награды", exact: true }).click();
   await page
     .getByRole("button", { name: "Начать вручение выбранных наград" })
     .click();
@@ -194,9 +198,9 @@ try {
     path: artifacts + "awards-mobile.png",
     fullPage: true,
   });
-  await page.getByRole("button", { name: "♟ Тренер" }).click();
+  await page.getByRole("button", { name: "Тренер", exact: true }).click();
   await page.getByRole("heading", { name: "Результаты карьеры" }).waitFor();
-  await page.getByRole("button", { name: "◈ Главная" }).click();
+  await page.getByRole("button", { name: "Главная", exact: true }).click();
   await page.getByRole("button", { name: "Начать сезон 2026" }).click();
   await waitSave("g.season===2026");
   saved = await getSave();
@@ -205,7 +209,7 @@ try {
   assert.ok(saved.matches.every((m) => !m.score));
   await page.reload();
   assert.equal((await getSave()).season, 2026);
-  await page.getByRole("button", { name: "⚙ Настройки" }).click();
+  await page.getByRole("button", { name: "Настройки", exact: true }).click();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     page.getByRole("button", { name: "Экспорт JSON", exact: true }).click(),

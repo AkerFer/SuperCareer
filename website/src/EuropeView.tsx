@@ -52,8 +52,8 @@ export function EuropeView({
         <p className="muted">
           Игровой формат: 36 команд, 8 матчей общего этапа; 1–8 — в 1/8, 9–24 —
           стыки, 25–36 — выбывают. Плей-офф в два матча, финал — один.
-          Упрощённые посев и жеребьёвка; только клубы пяти лиг. На следующий
-          сезон выходят топ-8 Англии и топ-7 остальных лиг.
+          Упрощённые посев и жеребьёвка; только клубы семи европейских лиг. На
+          следующий сезон выходят клубы семи европейских лиг по игровым квотам.
         </p>
         <p className="muted">
           {e.teams.includes(g.club)
@@ -104,8 +104,8 @@ export function EuropeView({
             </table>
           </div>
         </section>
-        <section className="panel">
-          <h3>Календарь и плей-офф</h3>
+        <details className="panel">
+          <summary>Все матчи и результаты турнира</summary>
           {(["final", "sf", "qf", "r16", "playoff", "league"] as const).map(
             (stage) => {
               const ms = e.matches.filter((m) => m.stage === stage);
@@ -134,7 +134,7 @@ export function EuropeView({
               ) : null;
             },
           )}
-        </section>
+        </details>
       </div>
     </>
   );

@@ -80,7 +80,7 @@ export function validCareerFields(g: Game): boolean {
         (!p.leagueById ||
           Object.entries(p.leagueById).every(
             ([k, s]) =>
-              Number.isInteger(+k) && +k >= 0 && +k < 5 && validStats(s),
+              Number.isInteger(+k) && +k >= 0 && +k < 9 && validStats(s),
           )) &&
         Number.isInteger(p.age) &&
         p.age >= 16 &&
@@ -248,11 +248,15 @@ export function validCareerFields(g: Game): boolean {
         ? g.europe?.matches
         : l.competition === "league"
           ? g.matches
-          : g.continental?.[l.competition]?.matches;
+          : l.competition === "domestic"
+            ? Object.values(g.domestic ?? {}).flatMap((c) => c.matches)
+            : g.continental?.[l.competition]?.matches;
     const m = ms?.find((m) => m.id === l.matchId);
     if (
       !m ||
-      !["league", "ucl", "uel", "uecl", "supercup"].includes(l.competition) ||
+      !["league", "ucl", "uel", "uecl", "supercup", "domestic"].includes(
+        l.competition,
+      ) ||
       !Number.isInteger(l.minute) ||
       l.minute < 0 ||
       l.minute > 90 ||

@@ -1,5 +1,6 @@
 import type { Game, Player } from "./engine";
-export type Competition = "league" | import("./world-types").ClubCupId;
+export type Competition =
+  "league" | "domestic" | import("./world-types").ClubCupId;
 export const banFor = (p: Player, competition: Competition = "league") =>
   p.bans?.[competition] ?? (competition === "league" ? (p.suspension ?? 0) : 0);
 export function assignCard(

@@ -24,6 +24,7 @@ export function CoachView({ game: g }: { game: Game }) {
       .filter((t) => t.winner === g.club && t.competition !== "ucl")
       .map((t) => ({ year: t.season, title: competitionNames[t.competition] })),
   );
+  titles.push(...(g.domesticHistory??[]).filter(h=>h.winner===g.club).map(h=>({year:h.season,title:h.name})));
   const awards = (g.awards ?? []).flatMap((y) =>
     y.awards
       .filter((a) => a.category === "coach" && a.winner.id === g.club)

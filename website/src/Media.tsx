@@ -1,5 +1,10 @@
 import { useState } from "react";
 import logos from "./data/logos.json";
+import extra from "./data/extra-leagues.json";
+const clubNames = new Set([
+  ...Object.keys(logos),
+  ...extra.flatMap((l) => l.clubs.map((c) => c.name)),
+]);
 /** Player portraits are disabled until the separate image database is supplied. */
 export function Photo({
   src,
@@ -12,7 +17,7 @@ export function Photo({
   real?: boolean;
 }) {
   const [failed, setFailed] = useState<string>();
-  const club = Object.hasOwn(logos, name);
+  const club = clubNames.has(name);
   const image = club ? src : undefined;
   return (
     <span className={`photo ${className}`}>

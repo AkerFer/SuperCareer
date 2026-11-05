@@ -26,11 +26,15 @@ try {
     return g;
   });
   await page.evaluate(
-    (g) => localStorage.setItem("fl-slot-1", JSON.stringify(g)),
+    async (g) =>
+      localStorage.setItem(
+        "fl-slot-1",
+        (await import("/src/storage.ts")).encodeSave(g),
+      ),
     g,
   );
   await page.reload();
-  await page.getByRole("button", { name: "▤ Турниры" }).click();
+  await page.getByRole("button", { name: "Турниры", exact: true }).click();
   assert.equal(await page.locator(".bracket-tie").count(), 23);
   await page
     .getByRole("button", { name: "UEFA Europa League", exact: true })
@@ -50,7 +54,7 @@ try {
   await page.getByRole("button", { name: "Сборные", exact: true }).click();
   await page.getByRole("heading", { name: "FIFA World Cup · 2026" }).waitFor();
   assert.equal(await page.locator(".bracket-tie").count(), 31);
-  await page.getByRole("button", { name: "♛ Награды" }).click();
+  await page.getByRole("button", { name: "Награды", exact: true }).click();
   await page.getByRole("button", { name: "Лиги", exact: true }).click();
   await page.getByRole("button", { name: "La Liga", exact: true }).click();
   assert.equal(await page.locator(".award-card").count(), 6);
@@ -65,7 +69,7 @@ try {
     .click();
   await page.locator(".ceremony .trophy-svg").waitFor();
   await page.getByRole("button", { name: "Закрыть церемонию" }).click();
-  await page.getByRole("button", { name: "♟ Тренер" }).click();
+  await page.getByRole("button", { name: "Тренер", exact: true }).click();
   assert.ok(await page.locator(".trophy-card").count());
   await page.locator(".trophy-card summary").first().click();
   await page.screenshot({
@@ -73,7 +77,7 @@ try {
     fullPage: true,
   });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "▤ Турниры" }).click();
+  await page.getByRole("button", { name: "Турниры", exact: true }).click();
   await page
     .getByRole("button", { name: "UEFA Europa League", exact: true })
     .click();
@@ -86,7 +90,7 @@ try {
     path: artifacts + "website-europa-mobile.png",
     fullPage: true,
   });
-  await page.getByRole("button", { name: "⚙ Настройки" }).click();
+  await page.getByRole("button", { name: "Настройки", exact: true }).click();
   await page
     .getByRole("heading", { name: "Transfermarkt / EA FC · импорт базы" })
     .waitFor();

@@ -1,3 +1,4 @@
+import { PlayerProfile, PlayerDetails } from "./PlayerProfile";
 import { banFor } from "./discipline";
 import { useLineupDrag } from "./useLineupDrag";
 import { playerPositions } from "./player-roles";
@@ -18,6 +19,8 @@ export function LineupView({
   liveMode?: boolean;
   onPlayer?: (id: number) => void;
 }) {
+  const [inspect, setInspect] = useState(!liveMode);
+  const [profile, setProfile] = useState<number | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [benchPick, setBenchPick] = useState<number | null>(null);
   const c = g.clubs[g.club];
@@ -48,6 +51,10 @@ export function LineupView({
   const drag = useLineupDrag(ids, apply);
   function tapSlot(index: number) {
     if (drag.suppressClick()) return;
+    if (inspect && ids[index] !== undefined) {
+      setProfile(ids[index]);
+      return;
+    }
     if (benchPick !== null) {
       apply(index, benchPick);
       return;
@@ -60,7 +67,28 @@ export function LineupView({
   }
   return (
     <section className={"squad-board " + (liveMode ? "in-match-board" : "")}>
+      {profile !== null && playerById(g, profile) && (
+        <PlayerProfile
+          game={g}
+          player={playerById(g, profile)!}
+          onClose={() => setProfile(null)}
+        />
+      )}
       <div className="squad-toolbar">
+        <div className="board-modes">
+          <button
+            className={inspect ? "active" : ""}
+            onClick={() => setInspect(true)}
+          >
+            Досье игроков
+          </button>
+          <button
+            className={!inspect ? "active" : ""}
+            onClick={() => setInspect(false)}
+          >
+            Менять состав
+          </button>
+        </div>
         <div>
           <span className="eyebrow">
             {liveMode ? "УПРАВЛЕНИЕ МАТЧЕМ" : "ТАКТИЧЕСКАЯ ДОСКА"}
@@ -137,7 +165,7 @@ export function LineupView({
                     onDrop={(e) => drag.dropSlot(index, e)}
                     aria-label={`Позиция ${index + 1}: ${p?.name ?? "Пусто"}`}
                     aria-pressed={selected === index}
-                    disabled={!!off}
+                    disabled={!!off && !inspect}
                     onClick={() => tapSlot(index)}
                   >
                     <span className="slot-role">{role}</span>
@@ -154,7 +182,7 @@ export function LineupView({
                         ⠿
                       </span>
                     )}
-                    <span className="pitch-shirt">
+                    <span className="pitch-shirt" key={p?.id ?? index}>
                       <Photo
                         src={p?.photo}
                         name={p?.name ?? "+"}
@@ -228,14 +256,16 @@ export function LineupView({
                   if (!disabled) e.preventDefault();
                 }}
                 onDrop={(e) => drag.dropBench(id, e)}
-                disabled={disabled}
+                disabled={disabled && !inspect}
                 aria-label={`Запасной ${p.name}`}
                 onClick={() =>
                   drag.suppressClick()
                     ? undefined
-                    : selected !== null
-                      ? apply(selected, id)
-                      : setBenchPick(benchPick === id ? null : id)
+                    : inspect
+                      ? setProfile(id)
+                      : selected !== null
+                        ? apply(selected, id)
+                        : setBenchPick(benchPick === id ? null : id)
                 }
               >
                 <span
@@ -264,6 +294,7 @@ export function LineupView({
           {chosen && (
             <div className="selected-player-info">
               <b>{chosen.name}</b>
+              <PlayerDetails game={g} player={chosen} />
               <p>
                 {chosen.pos} · Рейтинг {chosen.rating} · Мораль {chosen.morale}%
               </p>

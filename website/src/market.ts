@@ -1,4 +1,10 @@
-import { autoLineup, squad, transfer, type Game } from "./engine";
+import {
+  invalidateSquads,
+  autoLineup,
+  squad,
+  transfer,
+  type Game,
+} from "./engine";
 import { careerDate } from "./calendar";
 export function windowOpen(g: Game) {
   const date = careerDate(g);
@@ -25,6 +31,10 @@ export function negotiate(
     salary < p.salary
   )
     throw Error("Игрок требует зарплату не ниже текущей");
+  if (g.clubs[g.club].budget < fee)
+    throw Error(
+      "Недостаточно средств: уменьшите предложение или продайте игроков",
+    );
   const counter =
     p.club === null ? 0 : Math.round(p.value * (p.contract <= 1 ? 0.9 : 1.1));
   g.negotiation = {
@@ -41,6 +51,7 @@ export function negotiate(
 export function signDeal(g: Game) {
   const n = g.negotiation;
   if (!n || n.status !== "club-agreed") throw Error("Сначала согласуйте цену");
+  if (n.buyer !== g.club) throw Error("Предложение относится к другому клубу");
   transfer(g, n.player, n.buyer, n.fee, n.salary);
   n.status = "signed";
 }
@@ -81,6 +92,7 @@ export function loanPlayer(
     salaryShare: 1,
   });
   p.club = buyer;
+  invalidateSquads(g);
   autoLineup(g, owner);
   autoLineup(g, buyer);
   g.news.unshift(`${p.name}: аренда в ${g.clubs[buyer].name} до 30 июня`);
@@ -91,6 +103,7 @@ export function returnLoans(g: Game, date: string) {
     const p = g.players.find((p) => p.id === l.player);
     if (p) {
       p.club = l.owner;
+      invalidateSquads(g);
       autoLineup(g, l.owner);
       autoLineup(g, l.club);
     }

@@ -1,0 +1,24 @@
+{
+  "name": "football-legacy",
+  "version": "0.2.1",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "website",
+    "android-app"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @football-legacy/website --",
+    "build": "npm run build --workspace @football-legacy/website",
+    "preview": "npm run preview --workspace @football-legacy/website --",
+    "test": "npm test --workspace @football-legacy/website",
+    "test:browser": "npm run test:browser --workspace @football-legacy/website",
+    "android:build": "npm run build --workspace @football-legacy/android-app",
+    "android:sync": "npm run sync --workspace @football-legacy/android-app",
+    "android:open": "npm run open --workspace @football-legacy/android-app",
+    "android:apk": "npm run apk --workspace @football-legacy/android-app"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.10"
+  }
+}

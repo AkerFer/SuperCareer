@@ -1,0 +1,78 @@
+# Football Legacy
+
+Репозиторий разделён на два приложения. Основная разработка игры и сайта ведётся в `website/`; Android использует тот же игровой код через отдельную нативную оболочку.
+
+```text
+website/
+  src/                 React-интерфейс, движок, сохранения и игровые тесты
+  public/              Эмблемы и другие статические файлы
+  tests/               Браузерный сценарий
+  scripts/             Подготовка футбольных данных
+  dist/                Готовый сайт после сборки
+android-app/
+  src/                 Android-адаптер экспорта и точка входа
+  android/             Нативный Gradle-проект
+  scripts/             Сборка APK
+  capacitor.config.ts  Настройки приложения
+  dist/                Web-ресурсы Android после сборки
+package.json           Команды обоих приложений
+package-lock.json      Общий воспроизводимый lockfile npm workspaces
+```
+
+## Запуск сайта
+
+Установите Node.js 24 LTS (npm входит в комплект) и Git. Откройте терминал на компьютере.
+
+```sh
+git clone https://github.com/AkerFer/SuperCareer.git
+cd SuperCareer
+```
+
+Затем установите зависимости и запустите игру:
+
+```sh
+npm ci
+npm run dev -- --port 5173
+```
+
+Откройте в браузере адрес, напечатанный Vite (обычно `http://localhost:5173`). Терминал должен оставаться открытым; остановка сервера — Ctrl+C. Для повторного запуска достаточно `cd SuperCareer` и `npm run dev`. Android Studio и Java для сайта не требуются.
+
+Для production:
+
+```sh
+npm run build
+npm run preview -- --port 4173
+```
+
+Готовый сайт находится в **`website/dist/`**: разместите его содержимое в корне статического HTTPS-хостинга. Backend и регистрация не требуются. Веб-приложение зависит только от React, React DOM и lz-string; Capacitor и Android SDK нужны Android-части.
+
+## Android
+
+Требуются полный JDK 21 и Android SDK (API 36, Build Tools 35/36). В подготовленной облачной среде они уже установлены. На своей машине укажите `JAVA_HOME` и `ANDROID_HOME` либо настройте SDK в Android Studio.
+
+```sh
+npm run android:sync
+npm run android:apk
+npm run android:open
+```
+
+APK: **`android-app/android/app/build/outputs/apk/debug/app-debug.apk`**. В Android Studio открывайте `android-app/android/`. App ID `com.footballlegacy.career` сохранён; версия оболочки 0.2.1, versionCode 3. Debug-ключ остаётся прежним в подготовленной среде. Для самостоятельной release-публикации используйте свой ключ подписи.
+
+## Команды и границы приложений
+
+| Команда из корня | Результат |
+| --- | --- |
+| `npm run dev` | Разработка сайта |
+| `npm run build` | Только production-сайт |
+| `npm run preview` | Локальная проверка production-сайта |
+| `npm test` | Тесты игрового движка |
+| `npm run test:browser` | Браузерный сценарий сайта (Vite на 5173 + Chromium) |
+| `npm run android:build` | Web-ресурсы с нативным адаптером |
+| `npm run android:sync` | Сборка и перенос ресурсов в Android-проект |
+| `npm run android:apk` | Устанавливаемый debug APK |
+
+Можно работать непосредственно из `website/` (`npm run dev`, `npm run build`, `npm test`) или `android-app/` (`npm run sync`, `npm run apk`). Установка выполняется из корня; отдельные lockfile внутри приложений не нужны.
+
+Сайт скачивает сохранения обычным JSON-файлом. Android подключает собственный экспорт через системное меню «Поделиться» из `android-app/src/native-export.ts`. В веб-коде нет импорта Capacitor. Схема сохранений, ключи слотов и игровой движок общие. Браузер и Android имеют разные хранилища; переносите карьеру через экспорт/импорт JSON. Для браузера смена адреса/домена создаёт отдельное хранилище.
+
+Данные, текущие возможности и ограничения: [website/README.md](website/README.md), [website/DATA_SOURCES.md](website/DATA_SOURCES.md). Разделение сохраняет игровые возможности версии 0.2; дальнейшие исправления выполняются в веб-части и попадают в APK при пересборке.

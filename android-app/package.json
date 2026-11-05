@@ -1,0 +1,24 @@
+{
+  "name": "@football-legacy/android-app",
+  "version": "0.2.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "sync": "npm run build && cap sync android",
+    "apk": "npm run sync && node scripts/android-build.mjs",
+    "open": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3",
+    "@football-legacy/website": "*"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}

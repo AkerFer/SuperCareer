@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Football Legacy</string>
+    <string name="title_activity_main">Football Legacy</string>
+    <string name="package_name">com.footballlegacy.career</string>
+    <string name="custom_url_scheme">com.footballlegacy.career</string>
+</resources>

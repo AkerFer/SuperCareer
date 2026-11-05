@@ -1,5 +1,5 @@
 import type { Game, Player } from "./engine";
-export type Competition = "league" | "ucl";
+export type Competition = "league" | import("./world-types").ClubCupId;
 export const banFor = (p: Player, competition: Competition = "league") =>
   p.bans?.[competition] ?? (competition === "league" ? (p.suspension ?? 0) : 0);
 export function assignCard(
@@ -18,15 +18,16 @@ export function assignCard(
   if (kind === "yellow") {
     p.stats.yellow++;
     live.yellowCards[id] = (live.yellowCards[id] ?? 0) + 1;
-    p.yellowCarryByCompetition[comp]++;
-    if (p.yellowCarryByCompetition[comp] >= 5) {
+    p.yellowCarryByCompetition[comp] =
+      (p.yellowCarryByCompetition[comp] ?? 0) + 1;
+    if ((p.yellowCarryByCompetition[comp] ?? 0) >= 5) {
       p.yellowCarryByCompetition[comp] = 0;
-      p.bans[comp] = Math.max(p.bans[comp], 1);
+      p.bans[comp] = Math.max(p.bans[comp] ?? 0, 1);
     }
     if (live.yellowCards[id] === 2) {
       p.stats.red++;
       live.sentOff.push(id);
-      p.bans[comp] = Math.max(p.bans[comp], 1);
+      p.bans[comp] = Math.max(p.bans[comp] ?? 0, 1);
       live.events.push({
         minute: live.minute,
         type: "red",
@@ -45,7 +46,7 @@ export function assignCard(
   } else {
     p.stats.red++;
     live.sentOff.push(id);
-    p.bans[comp] = Math.max(p.bans[comp], 3);
+    p.bans[comp] = Math.max(p.bans[comp] ?? 0, 3);
     live.events.push({
       minute: live.minute,
       type: "red",
@@ -60,7 +61,7 @@ export function serveBans(g: Game, ids: number[], competition: Competition) {
     const p = g.players.find((p) => p.id === id);
     if (!p) continue;
     p.bans ??= { league: p.suspension ?? 0, ucl: 0 };
-    p.bans[competition] = Math.max(0, p.bans[competition] - 1);
+    p.bans[competition] = Math.max(0, (p.bans[competition] ?? 0) - 1);
     if (competition === "league") p.suspension = 0;
   }
 }

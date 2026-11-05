@@ -1,3 +1,4 @@
+import { competitionNames } from "./continental";
 import { useState, useEffect } from "react";
 import { LineupView } from "./LineupView";
 import type { Game } from "./engine";
@@ -34,11 +35,7 @@ export function LiveView({
     <div className={embedded ? "live-page" : "modal-backdrop live-backdrop"}>
       <section className="live-stadium">
         <div className="live-top">
-          <span className="tag">
-            {live.competition === "ucl"
-              ? "UEFA CHAMPIONS LEAGUE"
-              : "ПРЯМОЙ ЭФИР"}
-          </span>
+          <span className="tag">{competitionNames[live.competition]}</span>
           <span className={live.status === "playing" ? "live-light" : ""}>
             {live.status === "review"
               ? "ПРОВЕРКА VAR"

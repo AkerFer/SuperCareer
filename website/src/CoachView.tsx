@@ -1,5 +1,7 @@
+import { Trophy } from "./Trophy";
 import type { Game } from "./engine";
 import { coachStats } from "./career";
+import { competitionNames } from "./continental";
 export function CoachView({ game: g }: { game: Game }) {
   const s = coachStats(g);
   const titles = (g.awards ?? []).flatMap((y) => [
@@ -17,6 +19,11 @@ export function CoachView({ game: g }: { game: Game }) {
     )
       titles.push({ year: h.season, title: "Чемпион национальной лиги" });
   }
+  titles.push(
+    ...(g.cupHistory ?? [])
+      .filter((t) => t.winner === g.club && t.competition !== "ucl")
+      .map((t) => ({ year: t.season, title: competitionNames[t.competition] })),
+  );
   const awards = (g.awards ?? []).flatMap((y) =>
     y.awards
       .filter((a) => a.category === "coach" && a.winner.id === g.club)
@@ -39,7 +46,7 @@ export function CoachView({ game: g }: { game: Game }) {
         <div>
           <small>МАТЧЕЙ</small>
           <b>{s.played}</b>
-          <span>Лига + ЛЧ</span>
+          <span>Все клубные турниры</span>
         </div>
         <div>
           <small>ПОБЕД</small>
@@ -51,7 +58,7 @@ export function CoachView({ game: g }: { game: Game }) {
         <div>
           <small>ТРОФЕЕВ</small>
           <b>{titles.length}</b>
-          <span>Лиги и ЛЧ</span>
+          <span>Лиги и еврокубки</span>
         </div>
         <div>
           <small>ЛИЧНЫХ НАГРАД</small>
@@ -79,9 +86,9 @@ export function CoachView({ game: g }: { game: Game }) {
           </span>
         </div>
         <p className="muted">
-          Учитываются все завершённые матчи клуба в чемпионате и ЛЧ. В старых
-          сохранениях матчи прошлых сезонов до обновления недоступны; новая
-          статистика накапливается с текущего сезона.
+          Учитываются все завершённые матчи клуба во всех клубных турнирах. В
+          старых сохранениях матчи прошлых сезонов до обновления недоступны;
+          новая статистика накапливается с текущего сезона.
         </p>
       </section>
       <div className="columns">
@@ -89,9 +96,22 @@ export function CoachView({ game: g }: { game: Game }) {
           <h3>🏆 Трофейная полка</h3>
           {titles.length ? (
             titles.map((a, i) => (
-              <p key={i}>
-                {a.year} · {a.title}
-              </p>
+              <details className="trophy-card" key={i}>
+                <summary>
+                  <Trophy name={a.title} />
+                  <strong>{a.title}</strong>
+                  <small>
+                    {a.year}/{a.year + 1}
+                  </small>
+                </summary>
+                <div className="winner-reveal">
+                  <Trophy name={a.title} />
+                  <h3>{g.clubs[g.club].name}</h3>
+                  <p>
+                    {a.title} · {a.year}
+                  </p>
+                </div>
+              </details>
             ))
           ) : (
             <p className="muted">Главные победы впереди.</p>
@@ -101,9 +121,22 @@ export function CoachView({ game: g }: { game: Game }) {
           <h3>✨ Тренерские награды</h3>
           {awards.length ? (
             awards.map((a, i) => (
-              <p key={i}>
-                {a.year} · {a.title}
-              </p>
+              <details className="trophy-card" key={i}>
+                <summary>
+                  <Trophy name={a.title} />
+                  <strong>{a.title}</strong>
+                  <small>
+                    {a.year}/{a.year + 1}
+                  </small>
+                </summary>
+                <div className="winner-reveal">
+                  <Trophy name={a.title} />
+                  <h3>{g.clubs[g.club].name}</h3>
+                  <p>
+                    {a.title} · {a.year}
+                  </p>
+                </div>
+              </details>
             ))
           ) : (
             <p className="muted">

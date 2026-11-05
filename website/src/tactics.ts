@@ -41,12 +41,32 @@ export function roleFamily(pos: string) {
         ? "MID"
         : "ATT";
 }
-export type PositionalPlayer = { pos: string; positions?: string[] };
+export type PositionalPlayer = {
+  pos: string;
+  positions?: string[];
+  rating?: number;
+  cardBaseRating?: number;
+  positionRatings?: Record<string, number>;
+};
 export function positionMultiplier(
   player: string | PositionalPlayer,
   expected: string,
 ) {
   const p = typeof player === "string" ? { pos: player } : player;
+  if (
+    p.rating &&
+    p.cardBaseRating &&
+    p.positionRatings?.[expected] !== undefined
+  )
+    return expected === p.pos
+      ? 1
+      : Math.max(
+          1,
+          Math.min(
+            99,
+            p.positionRatings[expected] + p.rating - p.cardBaseRating,
+          ),
+        ) / p.rating;
   const roles = [p.pos, ...(p.positions ?? [])];
   if (roles.includes(expected)) return p.pos === expected ? 1 : 0.98;
   if (roles.includes("GK") || expected === "GK") return 0.15;
@@ -72,4 +92,14 @@ export function positionMultiplier(
   )
     return 0.9;
   return roles.some((r) => roleFamily(r) === roleFamily(expected)) ? 0.8 : 0.55;
+}
+
+export function effectiveRating(
+  p: PositionalPlayer & { rating: number },
+  role: string,
+) {
+  return Math.max(
+    1,
+    Math.min(99, Math.round(p.rating * positionMultiplier(p, role))),
+  );
 }

@@ -5,6 +5,14 @@ import {
   seasonComplete,
 } from "./career";
 import { beginLive } from "./live";
+import {
+  allClubMatches,
+  matchDate,
+  advanceContinentalCalendar,
+} from "./continental";
+import type { Competition } from "./discipline";
+import { advanceInternationals } from "./international";
+import { recoverInjuries } from "./injuries";
 export const europeanDates = [
   3, 6, 9, 12, 15, 18, 21, 24, 26, 27, 28, 29, 30, 31, 32, 33, 35,
 ];
@@ -18,21 +26,11 @@ export function careerDate(g: Game) {
 }
 export function nextCareerMatch(
   g: Game,
-): { match: Match; competition: "league" | "ucl" } | undefined {
-  if (
-    g.europe &&
-    g.europe.stage !== "complete" &&
-    (europeanDates[g.europe.day] ?? 99) <= g.round
-  ) {
-    const m = europeanDayFixtures(g).find(
-      (m) => !m.score && (m.home === g.club || m.away === g.club),
-    );
-    if (m) return { match: m, competition: "ucl" };
-  }
-  const m = g.matches.find(
-    (m) => !m.score && (m.home === g.club || m.away === g.club),
-  );
-  return m ? { match: m, competition: "league" } : undefined;
+): { match: Match; competition: Competition } | undefined {
+  const m = allClubMatches(g)
+    .filter((m) => !m.score && (m.home === g.club || m.away === g.club))
+    .sort((a, b) => matchDate(g, a).localeCompare(matchDate(g, b)))[0];
+  return m ? { match: m, competition: m.competition ?? "league" } : undefined;
 }
 export function beginNextCareerMatch(g: Game) {
   if (g.live && g.live.status !== "finished") return;
@@ -46,6 +44,7 @@ export function beginNextCareerMatch(g: Game) {
   if (!current && g.round < 38 && g.matches.some((m) => !m.score))
     advance(g, 1);
   advanceEuropeCalendar(g);
+  advanceContinentalCalendar(g);
   const next = nextCareerMatch(g);
   if (!next)
     throw Error(
@@ -65,7 +64,12 @@ export function advanceCalendar(g: Game, days: number) {
   const end = new Date(careerDate(g) + "T12:00:00Z");
   end.setUTCDate(end.getUTCDate() + days);
   const target = end.toISOString().slice(0, 10);
-  while (g.round < 38 && roundDate(g.season, g.round) <= target) advance(g, 1);
+  while (g.round < 38 && roundDate(g.season, g.round) <= target)
+    advance(g, 1, false, target);
+  advanceEuropeCalendar(g, target);
+  advanceContinentalCalendar(g, target);
+  advanceInternationals(g, target);
+  recoverInjuries(g, target);
   g.calendarDay = target;
 }
 export function finishOtherFixtures(g: Game) {

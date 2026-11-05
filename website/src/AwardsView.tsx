@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Trophy } from "./Trophy";
+import { leagues } from "./engine";
 import type { Game } from "./engine";
 import type { Award, SeasonAwards } from "./career-types";
 import { Photo } from "./Media";
@@ -7,9 +9,11 @@ export function AwardsView({ game: g }: { game: Game }) {
   const [ceremony, setCeremony] = useState<{
     season: SeasonAwards;
     index: number;
+    sequence: Award[];
   } | null>(null);
   const [count, setCount] = useState(3);
-  const [selected, setSelected] = useState<string>("all");
+  const [league, setLeague] = useState(0);
+  const [selected, setSelected] = useState<string>("world");
   useEffect(() => {
     if (!ceremony || count === 0) return;
     const timer = setTimeout(() => setCount((n) => n - 1), 650);
@@ -18,13 +22,25 @@ export function AwardsView({ game: g }: { game: Game }) {
   const current = g.awards?.find((a) => a.season === year) ?? g.awards?.[0];
   const awarded =
     current?.awards.filter(
-      (a) => selected === "all" || a.category === selected,
+      (a) =>
+        selected === "all" ||
+        (selected === "league"
+          ? a.id.startsWith(`league-${league}-`)
+          : a.category === selected),
     ) ?? [];
   function open(season: SeasonAwards, index: number) {
     setCount(3);
-    setCeremony({ season, index });
+    const sequence = awarded.length ? awarded : season.awards;
+    setCeremony({
+      season,
+      index: Math.max(
+        0,
+        sequence.findIndex((a) => a.id === season.awards[index]?.id),
+      ),
+      sequence,
+    });
   }
-  const award: Award | undefined = ceremony?.season.awards[ceremony.index];
+  const award: Award | undefined = ceremony?.sequence[ceremony.index];
   return (
     <>
       <section className="hero awards-hero">
@@ -56,8 +72,11 @@ export function AwardsView({ game: g }: { game: Game }) {
                 ))}
               </select>
             </div>
-            <button className="gold-button" onClick={() => open(current, 0)}>
-              ✨ Начать вручение всех наград
+            <button
+              className="gold-button"
+              onClick={() => open(current, current.awards.indexOf(awarded[0]))}
+            >
+              ✨ Начать вручение выбранных наград
             </button>
             <div className="league-tabs">
               {[
@@ -77,27 +96,47 @@ export function AwardsView({ game: g }: { game: Game }) {
               ))}
             </div>
           </section>
+          {selected === "league" && (
+            <div className="league-tabs">
+              {leagues.map((name, i) => (
+                <button
+                  key={name}
+                  className={league === i ? "active" : ""}
+                  onClick={() => setLeague(i)}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="award-grid">
-            {awarded.map((a) => (
-              <button
-                className="award-card panel"
-                key={a.id}
-                onClick={() => open(current, current.awards.indexOf(a))}
-              >
-                <span className="award-medal">
-                  {a.category === "coach"
-                    ? "♜"
-                    : a.id.includes("gk")
-                      ? "✋"
-                      : "♛"}
-                </span>
-                <h3>{a.title}</h3>
-                <Photo src={a.winner.photo} name={a.winner.name} />
-                <strong>{a.winner.name}</strong>
-                <small>{a.winner.club}</small>
-                <p>{a.winner.detail}</p>
-                <span className="gold-text">Смотреть вручение →</span>
-              </button>
+            {awarded.map((a, index) => (
+              <div key={a.id}>
+                {a.id.startsWith("league-") &&
+                  (index === 0 ||
+                    !awarded[index - 1].id.startsWith(
+                      a.id.split("-").slice(0, 2).join("-") + "-",
+                    )) && <h2>{leagues[+a.id.split("-")[1]]}</h2>}
+                <button
+                  className="award-card panel"
+                  key={a.id}
+                  onClick={() => open(current, current.awards.indexOf(a))}
+                >
+                  <span className="award-medal">
+                    {a.category === "coach"
+                      ? "♜"
+                      : a.id.includes("gk")
+                        ? "✋"
+                        : "♛"}
+                  </span>
+                  <h3>{a.title}</h3>
+                  <Photo src={a.winner.photo} name={a.winner.name} />
+                  <strong>{a.winner.name}</strong>
+                  <small>{a.winner.club}</small>
+                  <p>{a.winner.detail}</p>
+                  <span className="gold-text">Смотреть вручение →</span>
+                </button>
+              </div>
             ))}
           </div>
         </>
@@ -160,7 +199,7 @@ export function AwardsView({ game: g }: { game: Game }) {
             ) : (
               <div className="winner-reveal" key={award.id}>
                 <div className="confetti">✦ ✧ ✦ ✨ ✦ ✧ ✦</div>
-                <span className="trophy-animation">🏆</span>
+                <Trophy name={award.title} />
                 <Photo src={award.winner.photo} name={award.winner.name} />
                 <h1>{award.winner.name}</h1>
                 <p>{award.winner.club}</p>
@@ -205,12 +244,13 @@ export function AwardsView({ game: g }: { game: Game }) {
                   <button
                     className="gold-button"
                     onClick={() => {
-                      if (ceremony.index + 1 < ceremony.season.awards.length)
-                        open(ceremony.season, ceremony.index + 1);
-                      else setCeremony(null);
+                      if (ceremony.index + 1 < ceremony.sequence.length) {
+                        setCount(3);
+                        setCeremony({ ...ceremony, index: ceremony.index + 1 });
+                      } else setCeremony(null);
                     }}
                   >
-                    {ceremony.index + 1 < ceremony.season.awards.length
+                    {ceremony.index + 1 < ceremony.sequence.length
                       ? "Следующая награда →"
                       : "Завершить церемонию"}
                   </button>
@@ -218,7 +258,7 @@ export function AwardsView({ game: g }: { game: Game }) {
               )}
             </div>
             <small>
-              {ceremony.index + 1} / {ceremony.season.awards.length} наград
+              {ceremony.index + 1} / {ceremony.sequence.length} наград
             </small>
           </section>
         </div>

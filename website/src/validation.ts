@@ -62,8 +62,17 @@ export function validCareerFields(g: Game): boolean {
           ["league", "ucl"].every(
             (k) =>
               Number.isInteger(p.bans![k as "league" | "ucl"]) &&
-              p.bans![k as "league" | "ucl"] >= 0,
+              (p.bans![k as "league" | "ucl"] ?? -1) >= 0,
           )) &&
+        (!p.positionRatings ||
+          Object.values(p.positionRatings).every(
+            (n) => Number.isInteger(n) && n >= 1 && n <= 99,
+          )) &&
+        (!p.injuryDetail ||
+          (typeof p.injuryDetail.kind === "string" &&
+            Number.isFinite(Date.parse(p.injuryDetail.until)) &&
+            Number.isInteger(p.injuryDetail.days) &&
+            p.injuryDetail.days > 0)) &&
         validStats(p.stats) &&
         validStats(p.career) &&
         (!p.leagueStats || validStats(p.leagueStats)) &&
@@ -137,6 +146,70 @@ export function validCareerFields(g: Game): boolean {
     )
       return false;
   }
+  if (g.continental) {
+    for (const [id, c] of Object.entries(g.continental)) {
+      if (
+        !c ||
+        !["uel", "uecl", "supercup"].includes(id) ||
+        c.id !== id ||
+        !Array.isArray(c.teams) ||
+        !c.teams.every(club) ||
+        new Set(c.teams).size !== c.teams.length ||
+        !Array.isArray(c.matches) ||
+        !c.matches.every((m) => match(m) && m.competition === id) ||
+        !["groups", "r16", "qf", "sf", "final", "complete"].includes(c.stage) ||
+        !Number.isInteger(c.day) ||
+        c.day < 0 ||
+        c.day > 13 ||
+        !Array.isArray(c.groups) ||
+        !c.groups.every((ids) => ids.every(club)) ||
+        !Array.isArray(c.slots)
+      )
+        return false;
+    }
+  }
+  if (
+    g.loans &&
+    (!Array.isArray(g.loans) ||
+      !g.loans.every(
+        (l) =>
+          playerIds.has(l.player) &&
+          club(l.owner) &&
+          club(l.club) &&
+          l.owner !== l.club &&
+          Number.isFinite(l.fee) &&
+          l.fee >= 0 &&
+          typeof l.end === "string",
+      ))
+  )
+    return false;
+  if (
+    g.international &&
+    (!Array.isArray(g.international) ||
+      !g.international.every(
+        (c) =>
+          ["worldcup", "euro", "copa"].includes(c.id) &&
+          Number.isInteger(c.year) &&
+          Array.isArray(c.teams) &&
+          c.teams.every(
+            (t) => typeof t.name === "string" && Number.isFinite(t.strength),
+          ) &&
+          Array.isArray(c.matches) &&
+          c.matches.every(
+            (m) =>
+              Number.isInteger(m.home) &&
+              Number.isInteger(m.away) &&
+              m.home >= 0 &&
+              m.away >= 0 &&
+              m.home < c.teams.length &&
+              m.away < c.teams.length &&
+              (!m.score ||
+                (m.score.length === 2 &&
+                  m.score.every((n) => Number.isInteger(n) && n >= 0))),
+          ),
+      ))
+  )
+    return false;
   if (g.awards && !Array.isArray(g.awards)) return false;
   if (
     g.awards &&
@@ -170,11 +243,16 @@ export function validCareerFields(g: Game): boolean {
     return false;
   if (g.live) {
     const l = g.live;
-    const ms = l.competition === "ucl" ? g.europe?.matches : g.matches;
+    const ms =
+      l.competition === "ucl"
+        ? g.europe?.matches
+        : l.competition === "league"
+          ? g.matches
+          : g.continental?.[l.competition]?.matches;
     const m = ms?.find((m) => m.id === l.matchId);
     if (
       !m ||
-      !["league", "ucl"].includes(l.competition) ||
+      !["league", "ucl", "uel", "uecl", "supercup"].includes(l.competition) ||
       !Number.isInteger(l.minute) ||
       l.minute < 0 ||
       l.minute > 90 ||

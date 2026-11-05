@@ -57,7 +57,7 @@ export interface PlayerBefore {
 }
 export interface LiveMatch {
   matchId: number;
-  competition: "league" | "ucl";
+  competition: "league" | import("./world-types").ClubCupId;
   minute: number;
   status: "playing" | "halftime" | "paused" | "finished" | "review";
   score: [number, number];

@@ -1,13 +1,14 @@
 {
   "name": "@football-legacy/website",
-  "version": "0.2.1",
+  "version": "2.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node --import tsx --test src/engine.test.ts",
+    "test": "node --import tsx --test src/engine.test.ts src/competitions.test.ts",
+    "test:competitions": "node tests/competitions.mjs",
     "test:browser": "node tests/browser.mjs",
     "test:website-update": "node tests/website-update.mjs"
   },

@@ -6,6 +6,7 @@ import { playerById, squad, type Game } from "./engine";
 import { Photo } from "./Media";
 import { formations, formationRows, positionMultiplier } from "./tactics";
 import { liveSide, resetBestLineup, setLineupPlayer } from "./lineup";
+import { effectiveRating } from "./tactics";
 export function LineupView({
   game: g,
   act,
@@ -159,7 +160,7 @@ export function LineupView({
                         name={p?.name ?? "+"}
                         real={p?.real}
                       />
-                      <b>{p?.rating ?? "+"}</b>
+                      <b>{p ? effectiveRating(p, role) : "+"}</b>
                       {p?.id === c.captain && <em>К</em>}
                       {off && <em className="red-badge">🟥</em>}
                       {!off && p && (live?.yellowCards?.[p.id] ?? 0) > 0 && (

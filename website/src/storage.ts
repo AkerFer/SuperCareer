@@ -85,3 +85,10 @@ export function saveSlot(slot: number, g: Game, replace = false) {
   localStorage.removeItem(journalKey);
   liveBases.delete(slot);
 }
+
+export function deleteSlot(slot: number) {
+  if (![1, 2, 3].includes(slot)) throw Error("Неверный слот");
+  localStorage.removeItem("fl-slot-" + slot);
+  localStorage.removeItem("fl-live-" + slot);
+  liveBases.delete(slot);
+}

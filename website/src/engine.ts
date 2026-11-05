@@ -14,10 +14,12 @@ import {
   initializeEurope,
   creditStatistics,
   advanceEuropeCalendar,
+  seasonComplete,
   finalizeSeason,
   archiveCoachSeason,
   migrateGame,
 } from "./career";
+import { applyCardRatings } from "./fc-ratings";
 import { applyRealDatabase } from "./database";
 export const leagues = [
   "Premier League",
@@ -61,6 +63,27 @@ export interface Stats {
   yellow: number;
   red: number;
 }
+import type {
+  Cup,
+  TrophyRecord,
+  ClubCupId,
+  Loan,
+  Negotiation,
+  Injury,
+  NationalCup,
+  InternationalRecord,
+  MarketSource,
+} from "./world-types";
+import {
+  initializeContinental,
+  advanceContinentalCalendar,
+} from "./continental";
+import {
+  initializeInternationals,
+  advanceInternationals,
+} from "./international";
+import { windowOpen, returnLoans } from "./market";
+import { injure, recoverInjuries, injuryRisk } from "./injuries";
 export interface Player {
   id: number;
   club: number | null;
@@ -70,18 +93,24 @@ export interface Player {
   pos: string;
   positions?: string[];
   positionSource?: string;
+  positionRatings?: Record<string, number>;
+  cardBaseRating?: number;
   suspension?: number;
-  bans?: { league: number; ucl: number };
-  yellowCarryByCompetition?: { league: number; ucl: number };
+  bans?: Partial<Record<"league" | ClubCupId, number>>;
+  yellowCarryByCompetition?: Partial<Record<"league" | ClubCupId, number>>;
   yellowCarry?: number;
   rating: number;
   potential: number;
   value: number;
+  valueSource?: MarketSource;
+  ratingSource?: MarketSource;
+  photoSource?: MarketSource;
   salary: number;
   contract: number;
   fitness: number;
   morale: number;
   injury: number;
+  injuryDetail?: Injury;
   stats: Stats;
   career: Stats;
   real?: boolean;
@@ -120,8 +149,9 @@ export interface Match {
   score?: [number, number];
   events?: string[];
   shots?: [number, number];
-  competition?: "ucl";
-  stage?: EuropeanStage;
+  competition?: ClubCupId;
+  date?: string;
+  stage?: EuropeanStage | "groups" | "r32";
   tie?: number;
   winner?: number;
   penalties?: [number, number];
@@ -156,8 +186,15 @@ export interface Game {
   live?: LiveMatch;
   database?: string;
   rolesVersion?: 1;
+  ratingsVersion?: 1;
   careerMode?: "calendar" | "match";
   calendarDay?: string;
+  continental?: Partial<Record<"uel" | "uecl" | "supercup", Cup>>;
+  cupHistory?: TrophyRecord[];
+  international?: NationalCup[];
+  internationalHistory?: InternationalRecord[];
+  loans?: Loan[];
+  negotiation?: Negotiation;
 }
 export const emptyStats = (): Stats => ({
   goals: 0,
@@ -358,6 +395,8 @@ export function createGame(
     autoLineup(g, c.id);
   });
   applyRealDatabase(g);
+  g.rolesVersion = 1;
+  applyCardRatings(g);
   g.clubs.forEach((c) => autoLineup(g, c.id));
   g.matches = calendar(g.clubs);
   initializeCareer(g);
@@ -549,9 +588,12 @@ export function playMatch(g: Game, m: Match) {
         p.stats.yellow++;
         p.yellowCarryByCompetition ??= { league: 0, ucl: 0 };
         p.bans ??= { league: 0, ucl: 0 };
-        if (++p.yellowCarryByCompetition[competition] >= 5) {
+        if (
+          (p.yellowCarryByCompetition[competition] =
+            (p.yellowCarryByCompetition[competition] ?? 0) + 1) >= 5
+        ) {
           p.yellowCarryByCompetition[competition] = 0;
-          p.bans[competition] = Math.max(p.bans[competition], 1);
+          p.bans[competition] = Math.max(p.bans[competition] ?? 0, 1);
         }
         m.events!.push(
           `${5 + Math.floor(random(g) * 85)}′ ${p.name} — жёлтая карточка`,
@@ -560,15 +602,15 @@ export function playMatch(g: Game, m: Match) {
       if (random(g) < 0.008) {
         p.stats.red++;
         p.bans ??= { league: 0, ucl: 0 };
-        p.bans[competition] = Math.max(p.bans[competition], 3);
+        p.bans[competition] = Math.max(p.bans[competition] ?? 0, 3);
         m.events!.push(
           `${20 + Math.floor(random(g) * 70)}′ ${p.name} — красная карточка`,
         );
       }
-      if (random(g) < 0.012) {
-        p.injury = 1 + Math.floor(random(g) * 4);
+      if (random(g) < injuryRisk(p)) {
+        injure(g, p, m.date);
         m.events!.push(
-          `${10 + Math.floor(random(g) * 80)}′ ${p.name} — травма (${p.injury} тур.)`,
+          `${10 + Math.floor(random(g) * 80)}′ ${p.name} — ${p.injuryDetail?.kind} (${p.injuryDetail?.days} дн.)`,
         );
       }
     });
@@ -606,7 +648,12 @@ export function playMatch(g: Game, m: Match) {
   serveBans(g, banned, competition);
   creditStatistics(g, m, before);
 }
-export function advance(g: Game, count = 1, onlyOwn = false) {
+export function advance(
+  g: Game,
+  count = 1,
+  onlyOwn = false,
+  throughDate?: string,
+) {
   migrateGame(g);
   if (g.live && g.live.status !== "finished")
     throw Error("Сначала завершите текущий матч");
@@ -633,7 +680,7 @@ export function advance(g: Game, count = 1, onlyOwn = false) {
     fixtures.forEach((m) => playMatch(g, m));
     g.players.forEach((p) => {
       p.fitness = Math.min(100, p.fitness + 9);
-      p.injury = Math.max(0, p.injury - 1);
+      if (!p.injuryDetail) p.injury = Math.max(0, p.injury - 1);
     });
     g.clubs.forEach((c) => {
       const wages = squad(g, c.id).reduce((s, p) => s + p.salary, 0);
@@ -644,8 +691,13 @@ export function advance(g: Game, count = 1, onlyOwn = false) {
     g.calendarDay = new Date(Date.UTC(g.season, 7, 9 + g.round * 7))
       .toISOString()
       .slice(0, 10);
+    recoverInjuries(g, g.calendarDay);
+    returnLoans(g, g.calendarDay);
     if (g.round % 5 === 0) aiTransfer(g);
-    advanceEuropeCalendar(g);
+    advanceEuropeCalendar(g, throughDate);
+    advanceContinentalCalendar(g, throughDate);
+    if (g.round === 38) advanceInternationals(g, throughDate);
+    if (seasonComplete(g)) finalizeSeason(g);
   }
 }
 export function transfer(
@@ -659,8 +711,10 @@ export function transfer(
     throw Error("Сначала завершите текущий матч");
   const p = g.players.find((p) => p.id === id);
   if (!p) throw Error("Игрок не найден");
-  if (!(g.round < 5 || (g.round >= 19 && g.round < 24)))
+  if (p.club !== null && !windowOpen(g))
     throw Error("Трансферное окно закрыто");
+  if (g.loans?.some((l) => l.player === id))
+    throw Error("Игрок находится в аренде");
   if (p.club === buyer) throw Error("Игрок уже в клубе");
   if (
     !Number.isFinite(fee) ||
@@ -695,7 +749,7 @@ export function transfer(
   autoLineup(g, buyer);
 }
 function aiTransfer(g: Game) {
-  if (g.round >= 5 && !(g.round >= 19 && g.round < 24)) return;
+  if (!windowOpen(g)) return;
   for (let i = 0; i < 8; i++) {
     const buyer = g.clubs[Math.floor(random(g) * g.clubs.length)];
     if (buyer.id === g.club) continue;
@@ -720,9 +774,12 @@ export function nextSeason(g: Game) {
     throw Error("Сначала завершите текущий матч");
   if (g.matches.some((m) => !m.score))
     throw Error("Сначала завершите все матчи сезона");
+  if (Object.values(g.continental ?? {}).some((c) => c.stage !== "complete"))
+    throw Error("Завершите остальные еврокубки");
   if (g.europe?.stage !== "complete")
     throw Error("Сначала завершите Лигу чемпионов");
   finalizeSeason(g);
+  returnLoans(g, `${g.season + 1}-07-01`);
   archiveCoachSeason(g);
   const nextQualifiers = leagues.flatMap((_, l) =>
     table(g, l)
@@ -758,6 +815,8 @@ export function nextSeason(g: Game) {
     );
     p.age++;
     p.contract--;
+    p.valueSource = undefined;
+    p.ratingSource = undefined;
     p.value = Math.round(
       Math.pow(p.rating / 10, 3) * 40000 * Math.max(0.15, (40 - p.age) / 15),
     );
@@ -770,7 +829,7 @@ export function nextSeason(g: Game) {
     p.ratedApps = 0;
     p.seasonClubs = [];
     p.fitness = 100;
-    p.injury = 0;
+    if (!p.injuryDetail) p.injury = 0;
     if (p.contract <= 0) p.club = null;
   });
   g.archive = g.archive.concat(g.players.filter((p) => p.age >= 38));
@@ -783,10 +842,13 @@ export function nextSeason(g: Game) {
   });
   g.season++;
   g.round = 0;
+  recoverInjuries(g, `${g.season}-08-09`);
   g.calendarDay = undefined;
   g.matches = calendar(g.clubs);
   g.live = undefined;
   initializeEurope(g, nextQualifiers);
+  initializeContinental(g);
+  initializeInternationals(g);
   g.news.unshift(
     `Сезон ${g.season}: клуб получил телеправа и спонсорские выплаты. Контракты истекли, академии выпустили новых игроков.`,
   );

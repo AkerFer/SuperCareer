@@ -4,12 +4,18 @@ import { advance, nextSeason } from "./engine";
 import {
   advanceCalendar,
   careerDate,
-  roundDate,
   nextCareerMatch,
   finishOtherFixtures,
 } from "./calendar";
 import { seasonComplete, completeSeason } from "./career";
 import { Photo } from "./Media";
+import {
+  allClubMatches,
+  matchDate,
+  resultForClub,
+  competitionMarks,
+  competitionNames,
+} from "./continental";
 export function CareerHub({
   game: g,
   act,
@@ -91,9 +97,9 @@ export function CareerHub({
             ))}
             {Array.from({ length: count }, (_, i) => {
               const date = `${month}-${String(i + 1).padStart(2, "0")}`;
-              const fixture = g.matches.find(
+              const fixture = allClubMatches(g).find(
                 (f) =>
-                  roundDate(g.season, f.round) === date &&
+                  matchDate(g, f) === date &&
                   (f.home === g.club || f.away === g.club),
               );
               return (
@@ -101,7 +107,9 @@ export function CareerHub({
                   key={date}
                   className={
                     (date === today ? "today " : "") +
-                    (fixture ? "matchday " : "")
+                    (fixture
+                      ? "matchday result-" + resultForClub(fixture, g.club)
+                      : "")
                   }
                   onClick={() => {
                     if (g.careerMode === "calendar" && date >= today)
@@ -136,7 +144,9 @@ export function CareerHub({
                         }
                       />
                       <small>
-                        {fixture.score ? fixture.score.join(":") : "Лига"}
+                        {competitionMarks[fixture.competition ?? "league"]}
+                        <br />
+                        {fixture.score?.join(":")}
                       </small>
                     </>
                   )}
@@ -145,7 +155,7 @@ export function CareerHub({
             })}
           </div>
           <p className="muted">
-            Игровое расписание: один тур в неделю. ЛЧ разыгрывается между
+            Игровое расписание: один тур в неделю. Еврокубки разыгрываются между
             турами. В календарном режиме выберите дату, чтобы промотать до неё.
           </p>
         </section>
@@ -153,11 +163,7 @@ export function CareerHub({
           <span className="eyebrow">СЛЕДУЮЩИЙ ВЫЗОВ</span>
           {next ? (
             <>
-              <h2>
-                {next.competition === "ucl"
-                  ? "UEFA Champions League"
-                  : "Матч чемпионата"}
-              </h2>
+              <h2>{competitionNames[next.competition]}</h2>
               <div className="versus">
                 <div>
                   <Photo

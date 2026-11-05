@@ -19,22 +19,27 @@ import {
   finalizeSeason,
 } from "./career";
 import type { LiveMatch } from "./career-types";
+import { allClubMatches, cupDay, settleCup } from "./continental";
+import type { Competition } from "./discipline";
+import { injure } from "./injuries";
 export function liveFixture(g: Game) {
-  return g.live?.competition === "ucl"
-    ? g.europe?.matches.find((m) => m.id === g.live!.matchId)
-    : g.matches.find((m) => m.id === g.live?.matchId);
+  return allClubMatches(g).find((m) => m.id === g.live?.matchId);
 }
-export function beginLive(g: Game, competition: "league" | "ucl" = "league") {
+export function beginLive(g: Game, competition: Competition = "league") {
   migrateGame(g);
   if (g.live && g.live.status !== "finished") return;
   let m =
-    competition === "ucl"
-      ? europeanDayFixtures(g).find(
+    competition !== "ucl" && competition !== "league"
+      ? cupDay(g.continental![competition]!).find(
           (m) => !m.score && (m.home === g.club || m.away === g.club),
         )
-      : g.matches
-          .filter((m) => m.round === g.round)
-          .find((m) => !m.score && (m.home === g.club || m.away === g.club));
+      : competition === "ucl"
+        ? europeanDayFixtures(g).find(
+            (m) => !m.score && (m.home === g.club || m.away === g.club),
+          )
+        : g.matches
+            .filter((m) => m.round === g.round)
+            .find((m) => !m.score && (m.home === g.club || m.away === g.club));
   if (
     !m &&
     competition === "league" &&
@@ -162,6 +167,8 @@ function finish(g: Game, m: Match, live: LiveMatch) {
   serveBans(g, live.bansAtStart ?? [], live.competition);
   creditStatistics(g, m, live.before);
   if (live.competition === "ucl") settleEuropeanDay(g);
+  else if (live.competition !== "league")
+    settleCup(g, g.continental![live.competition]!);
   if (seasonComplete(g)) finalizeSeason(g);
 }
 export function tickLive(g: Game) {
@@ -266,15 +273,20 @@ export function tickLive(g: Game) {
         assignCard(g, side, p.id, "red");
       } else assignCard(g, side, p.id, "yellow");
     }
-    if (ps.length && random(g) < 0.0015) {
+    if (
+      ps.length &&
+      random(g) <
+        0.0015 *
+          (ps.reduce((s, p) => s + p.fitness, 0) / ps.length < 65 ? 2 : 1)
+    ) {
       const p = ps[Math.floor(random(g) * ps.length)];
-      p.injury = 1 + Math.floor(random(g) * 4);
+      injure(g, p, liveFixture(g)?.date);
       live.events.push({
         minute: live.minute,
         type: "injury",
         side,
         player: p.id,
-        text: `${live.minute}′ ${p.name} — травма (${p.injury} тур.)`,
+        text: `${live.minute}′ ${p.name} — ${p.injuryDetail?.kind} (${p.injuryDetail?.days} дн.)`,
       });
     }
   }
@@ -398,4 +410,17 @@ export function resolveVAR(g: Game) {
   delete l.pendingVAR;
   l.status = l.minute === 45 ? "halftime" : "playing";
   if (l.minute >= 90) finish(g, liveFixture(g)!, l);
+}
+
+/** Normal minute ticks touch only the live teams. The final minute needs a full copy for trophies and tables. */
+export function cloneLiveFrame(g: Game, target: number): Game {
+  const m = liveFixture(g);
+  if (!m || !g.live || target >= 90) return structuredClone(g);
+  return {
+    ...g,
+    live: structuredClone(g.live),
+    players: g.players.map((p) =>
+      p.club === m.home || p.club === m.away ? structuredClone(p) : p,
+    ),
+  };
 }

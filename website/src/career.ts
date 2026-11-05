@@ -57,18 +57,54 @@ export function initializeCareer(g: Game) {
     p.seasonClubs ??= [];
   });
   if (!g.europe) initializeEurope(g);
+  if (!g.continental) {
+    const europe = g.europe!;
+    // Older saves already know the UCL champion but predate the shared trophy archive.
+    if (europe.stage === "complete" && europe.winner !== undefined) {
+      const final = europe.matches.find((m) => m.stage === "final");
+      if (final)
+        recordTrophy(
+          g,
+          "ucl",
+          europe.winner,
+          final.home === europe.winner ? final.away : final.home,
+        );
+    }
+    initializeContinental(g);
+  }
+  if (!g.international) initializeInternationals(g);
 }
+import { applyCardRatings } from "./fc-ratings";
 export function migrateGame(g: Game) {
   if (!g.rolesVersion) {
     g.players.forEach(setPlayerRoles);
     g.rolesVersion = 1;
   }
   g.careerMode ??= "calendar";
+  applyCardRatings(g);
 
-  if (g.edition !== 2 || !g.europe || !g.awards || !g.coach)
+  if (
+    g.edition !== 2 ||
+    !g.europe ||
+    !g.awards ||
+    !g.coach ||
+    !g.continental ||
+    !g.international
+  )
     initializeCareer(g);
   return g;
 }
+import {
+  initializeInternationals,
+  advanceInternationals,
+} from "./international";
+import {
+  allClubMatches,
+  matchDate,
+  initializeContinental,
+  advanceCup,
+  recordTrophy,
+} from "./continental";
 export function initializeEurope(g: Game, teams?: number[]) {
   teams ??= leagues.flatMap((_, l) =>
     g.clubs
@@ -225,6 +261,13 @@ export function settleEuropeanDay(g: Game) {
   });
   if (e.stage === "final") {
     e.winner = winners[0];
+    const final = e.matches.find((m) => m.stage === "final")!;
+    recordTrophy(
+      g,
+      "ucl",
+      e.winner,
+      final.home === e.winner ? final.away : final.home,
+    );
     e.stage = "complete";
     g.clubs[e.winner].budget += 30000000;
     g.clubs[e.winner].income += 30000000;
@@ -270,7 +313,7 @@ export function advanceEurope(g: Game) {
   europeanDayFixtures(g).forEach((m) => playMatch(g, m));
   settleEuropeanDay(g);
 }
-export function advanceEuropeCalendar(g: Game) {
+export function advanceEuropeCalendar(g: Game, throughDate?: string) {
   while (
     g.europe!.stage !== "complete" &&
     (dates[g.europe!.day] ?? 38) <= g.round
@@ -282,6 +325,11 @@ export function advanceEuropeCalendar(g: Game) {
       )
     )
       break;
+    if (
+      throughDate &&
+      europeanDayFixtures(g).some((m) => matchDate(g, m) > throughDate)
+    )
+      break;
     advanceEurope(g);
   }
   if (seasonComplete(g)) finalizeSeason(g);
@@ -290,6 +338,8 @@ export function seasonComplete(g: Game) {
   return (
     g.matches.every((m) => !!m.score) &&
     g.europe?.stage === "complete" &&
+    Object.values(g.continental ?? {}).every((c) => c.stage === "complete") &&
+    (g.international ?? []).every((c) => c.stage === "complete") &&
     (!g.live || g.live.status === "finished")
   );
 }
@@ -297,13 +347,16 @@ export function completeSeason(g: Game) {
   if (g.matches.some((m) => !m.score))
     throw Error("Сначала завершите чемпионаты");
   while (g.europe?.stage !== "complete") advanceEurope(g);
+  for (const c of Object.values(g.continental ?? {}))
+    while (c.stage !== "complete") advanceCup(g, c.id);
+  advanceInternationals(g);
   finalizeSeason(g);
 }
 export function creditStatistics(g: Game, m: Match, before: PlayerBefore[]) {
   for (const saved of before) {
     const p = playerById(g, saved.id)!;
     if (!p) continue;
-    if (m.competition !== "ucl") {
+    if (!m.competition) {
       p.leagueById ??= {};
       p.leagueById[m.league] ??= emptyStats();
       (Object.keys(p.stats) as (keyof Stats)[]).forEach((k) => {
@@ -311,10 +364,12 @@ export function creditStatistics(g: Game, m: Match, before: PlayerBefore[]) {
       });
     }
     const key = m.competition === "ucl" ? "europeanStats" : "leagueStats";
-    p[key] ??= emptyStats();
-    (Object.keys(p.stats) as (keyof Stats)[]).forEach((k) => {
-      p[key]![k] += p.stats[k] - saved.stats[k];
-    });
+    if (!m.competition || m.competition === "ucl") {
+      p[key] ??= emptyStats();
+      (Object.keys(p.stats) as (keyof Stats)[]).forEach((k) => {
+        p[key]![k] += p.stats[k] - saved.stats[k];
+      });
+    }
     const side = p.club === m.home ? 0 : 1;
     const rating = Math.max(
       4,
@@ -337,7 +392,7 @@ export function creditStatistics(g: Game, m: Match, before: PlayerBefore[]) {
 }
 export function coachStats(g: Game) {
   const result = { ...(g.coach ?? totals()) };
-  for (const m of [...g.matches, ...(g.europe?.matches ?? [])]) {
+  for (const m of allClubMatches(g)) {
     if (!m.score || (m.home !== g.club && m.away !== g.club)) continue;
     const [a, b] = m.home === g.club ? m.score : [m.score[1], m.score[0]];
     result.played++;
@@ -363,7 +418,13 @@ export function finalizeSeason(g: Game) {
   const ucl = g.europe!.winner;
   const titles = (p: Player) =>
     champions.filter((c) => (p.seasonClubs ?? []).includes(c)).length +
-    (ucl !== undefined && (p.seasonClubs ?? []).includes(ucl) ? 2 : 0);
+    (ucl !== undefined && (p.seasonClubs ?? []).includes(ucl) ? 2 : 0) +
+    (g.cupHistory ?? []).filter(
+      (t) =>
+        t.season === g.season &&
+        t.competition !== "ucl" &&
+        (p.seasonClubs ?? []).includes(t.winner),
+    ).length;
   const nominee = (p: Player, score: number, detail: string): AwardNominee => ({
     id: p.id,
     name: p.name,
@@ -549,7 +610,7 @@ export function finalizeSeason(g: Game) {
   );
   const coaches = g.clubs
     .map((c) => {
-      const matches = [...g.matches, ...g.europe!.matches].filter(
+      const matches = allClubMatches(g).filter(
         (m) => m.score && (m.home === c.id || m.away === c.id),
       );
       const wins = matches.filter((m) =>
@@ -651,7 +712,13 @@ export function finalizeSeason(g: Game) {
     p.trophies =
       (p.trophies ?? 0) +
       champions.filter((c) => (p.seasonClubs ?? []).includes(c)).length +
-      (ucl !== undefined && (p.seasonClubs ?? []).includes(ucl) ? 1 : 0);
+      (ucl !== undefined && (p.seasonClubs ?? []).includes(ucl) ? 1 : 0) +
+      (g.cupHistory ?? []).filter(
+        (t) =>
+          t.season === g.season &&
+          t.competition !== "ucl" &&
+          (p.seasonClubs ?? []).includes(t.winner),
+      ).length;
   });
   g.news.unshift(
     `✨ Награды сезона ${g.season} рассчитаны. Церемония доступна во вкладке «Награды».`,

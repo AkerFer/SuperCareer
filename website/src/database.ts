@@ -12,7 +12,7 @@ interface Entry {
   source: string;
 }
 export const databaseLabel =
-  "Историческая база 2024/25: реальные имена; рейтинги, бюджеты и недостающий возраст — игровые оценки. Составы разных дат сезона, не актуальная заявка 2026/27.";
+  "Историческая база 2024/25: реальные имена; FC 26 OVR (снимок 19.09.2025) для 1337 игроков; остальные рейтинги, цены, бюджеты и недостающий возраст — игровые оценки. Составы разных дат сезона, не актуальная заявка 2026/27.";
 export function applyRealDatabase(g: Game, preserveProgress = false) {
   const db = rosters as Record<string, Entry[]>;
   for (const c of g.clubs) {

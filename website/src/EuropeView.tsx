@@ -7,6 +7,7 @@ import {
 } from "./career";
 import { beginLive } from "./live";
 import { Photo } from "./Media";
+import { Bracket } from "./CupView";
 export function EuropeView({
   game: g,
   act,
@@ -60,6 +61,7 @@ export function EuropeView({
             : "Ваш клуб не прошёл отбор в этом сезоне. Боритесь за место в лиге!"}
         </p>
       </section>
+      <Bracket game={g} matches={e.matches} />
       <div className="columns">
         <section className="panel">
           <h3>Общий этап · таблица</h3>

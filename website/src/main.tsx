@@ -2,7 +2,6 @@ import { ClubPicker } from "./ClubPicker";
 import { CareerHub } from "./CareerHub";
 import { beginNextCareerMatch, nextCareerMatch } from "./calendar";
 import { playerPositions } from "./player-roles";
-import { PhotoCredits } from "./PhotoCredits";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -23,15 +22,24 @@ import {
 import "./style.css";
 import { exportCareer } from "./export";
 import { migrateGame, seasonComplete, completeSeason } from "./career";
-import { beginLive, tickLive, resolveVAR } from "./live";
+import { beginLive, tickLive, resolveVAR, cloneLiveFrame } from "./live";
 import { LineupView } from "./LineupView";
 import { LiveView } from "./LiveView";
-import { EuropeView } from "./EuropeView";
+import { DataImport } from "./DataImport";
+import { TransferDeal } from "./TransferDeal";
+import { windowOpen } from "./market";
+import {
+  allClubMatches,
+  matchDate,
+  resultForClub,
+  competitionMarks,
+} from "./continental";
+import { CupHub } from "./CupView";
 import { AwardsView } from "./AwardsView";
 import { CoachView } from "./CoachView";
 import { Photo } from "./Media";
 import { databaseLabel } from "./database";
-import { readSlot, saveSlot } from "./storage";
+import { readSlot, saveSlot, deleteSlot } from "./storage";
 const money = (n: number) =>
   new Intl.NumberFormat("ru", {
     style: "currency",
@@ -75,6 +83,7 @@ function App() {
   const [minRating, setMinRating] = useState(1);
   const [maxPrice, setMaxPrice] = useState(200);
   const [marketLeague, setMarketLeague] = useState(-1);
+  const [deleting, setDeleting] = useState<number | null>(null);
   const [selected, setSelected] = useState<Player | null>(null);
   const [fee, setFee] = useState(0);
   const [wage, setWage] = useState(0);
@@ -88,9 +97,12 @@ function App() {
       setMsg("Не удалось сохранить: хранилище заполнено. Экспортируйте JSON.");
     }
   }
-  function act(fn: (x: Game) => void) {
+  function act(fn: (x: Game) => void, tickTarget?: number) {
     if (!g) return;
-    const next = structuredClone(g);
+    const next =
+      tickTarget === undefined
+        ? structuredClone(g)
+        : cloneLiveFrame(g, tickTarget);
     try {
       fn(next);
       setG(next);
@@ -127,22 +139,20 @@ function App() {
         (live.minute - clock.minute + 1) * (10000 / 90) -
         performance.now(),
     );
-    const timer = setTimeout(
-      () =>
-        act((x) => {
-          const target = Math.min(
-            90,
-            Math.max(
-              x.live!.minute + 1,
-              clock.minute +
-                Math.floor((performance.now() - clock.at) / (10000 / 90)),
-            ),
-          );
-          while (x.live!.minute < target && x.live!.status === "playing")
-            tickLive(x);
-        }),
-      delay,
-    );
+    const timer = setTimeout(() => {
+      const target = Math.min(
+        90,
+        Math.max(
+          live.minute + 1,
+          clock.minute +
+            Math.floor((performance.now() - clock.at) / (10000 / 90)),
+        ),
+      );
+      act((x) => {
+        while (x.live!.minute < target && x.live!.status === "playing")
+          tickLive(x);
+      }, target);
+    }, delay);
     return () => clearTimeout(timer);
   }, [g, slot, tab]);
   useEffect(() => {
@@ -181,6 +191,10 @@ function App() {
   const last = g?.matches
     .filter((m) => m.score && (m.home === g.club || m.away === g.club))
     .at(-1);
+  const detailedMatch =
+    g && detail !== null
+      ? allClubMatches(g).find((m) => m.id === detail)
+      : undefined;
   const currentPlayer =
     selected && g?.players.find((p) => p.id === selected.id);
   const score = (m: NonNullable<typeof next>) =>
@@ -898,33 +912,42 @@ function App() {
                       )}
                     </section>
                     <section className="panel">
-                      {g.matches
+                      {allClubMatches(g)
                         .filter((m) => m.home === g.club || m.away === g.club)
+                        .sort((a, b) =>
+                          matchDate(g, a).localeCompare(matchDate(g, b)),
+                        )
                         .map((m) => (
                           <button
                             className={
-                              "fixture " + (m.id === detail ? "highlight" : "")
+                              "fixture result-" +
+                              resultForClub(m, g.club) +
+                              " " +
+                              (m.id === detail ? "highlight" : "")
                             }
                             key={m.id}
                             onClick={() => setDetail(m.id)}
                           >
-                            <small>ТУР {m.round + 1}</small>
+                            <small>
+                              {competitionMarks[m.competition ?? "league"]} ·{" "}
+                              {matchDate(g, m)}
+                            </small>
                             <span>{g.clubs[m.home].name}</span>
                             <b>{m.score ? m.score.join(" : ") : "— : —"}</b>
                             <span>{g.clubs[m.away].name}</span>
                           </button>
                         ))}
                     </section>
-                    {detail !== null && (
+                    {detailedMatch && (
                       <section className="panel">
-                        <h3>{score(g.matches[detail])}</h3>
-                        {g.matches[detail].score ? (
+                        <h3>{score(detailedMatch)}</h3>
+                        {detailedMatch.score ? (
                           <>
                             <p className="muted">
-                              Удары: {g.matches[detail].shots?.join(" : ")}
+                              Удары: {detailedMatch.shots?.join(" : ")}
                             </p>
-                            {g.matches[detail].events?.length ? (
-                              g.matches[detail].events!.map((e, i) => (
+                            {detailedMatch.events?.length ? (
+                              detailedMatch.events!.map((e, i) => (
                                 <p className="event" key={i}>
                                   {e}
                                 </p>
@@ -950,9 +973,7 @@ function App() {
                         </p>
                       </div>
                       <span className="tag">
-                        {g.round < 5 || (g.round >= 19 && g.round < 24)
-                          ? "● ОКНО ОТКРЫТО"
-                          : "ОКНО ЗАКРЫТО"}
+                        {windowOpen(g) ? "● ОКНО ОТКРЫТО" : "ОКНО ЗАКРЫТО"}
                       </span>
                     </div>
                     <section className="panel">
@@ -1037,97 +1058,99 @@ function App() {
                       )}
                       <p className="muted">
                         Показаны первые 100 совпадений. Окна: туры 1–5 и 20–24.
-                        Минимальная цена переговоров — 85% стоимости.
+                        Окна: январь и июль–август. Цена согласуется с клубом;
+                        аренда до 30 июня.
                       </p>
                     </section>
                   </>
                 )}
                 {tab === "Турниры" && (
                   <>
-                    <EuropeView game={g} act={act} />
-                    <h1>Национальные чемпионаты</h1>
-                    <div className="league-tabs">
-                      {leagues.map((l, i) => (
-                        <button
-                          className={league === i ? "active" : ""}
-                          key={l}
-                          onClick={() => setLeague(i)}
-                        >
-                          {l}
-                        </button>
-                      ))}
-                    </div>
-                    <section className="panel">
-                      <h3>{leagues[league]}</h3>
-                      <div className="table-wrap">
-                        <table>
-                          <thead>
-                            <tr>
-                              {[
-                                "#",
-                                "Клуб",
-                                "И",
-                                "В",
-                                "Н",
-                                "П",
-                                "ЗМ",
-                                "ПМ",
-                                "РМ",
-                                "О",
-                              ].map((x) => (
-                                <th key={x}>{x}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {table(g, league).map((r, i) => (
-                              <tr
-                                key={r.club.id}
-                                className={
-                                  r.club.id === g.club ? "highlight" : ""
-                                }
-                              >
-                                <td>
-                                  <span
-                                    className={
-                                      i < (league === 0 ? 8 : 7)
-                                        ? "rank top"
-                                        : "rank"
-                                    }
-                                  >
-                                    {i + 1}
-                                  </span>
-                                </td>
-                                <td>
-                                  <span className="table-club">
-                                    <Photo
-                                      src={r.club.logo}
-                                      name={r.club.name}
-                                    />
-                                    {r.club.name}
-                                  </span>
-                                </td>
-                                <td>{r.played}</td>
-                                <td>{r.w}</td>
-                                <td>{r.d}</td>
-                                <td>{r.loss}</td>
-                                <td>{r.gf}</td>
-                                <td>{r.ga}</td>
-                                <td>{r.gf - r.ga}</td>
-                                <td>
-                                  <b>{r.pts}</b>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                    <CupHub game={g} act={act}>
+                      <h1>Национальные чемпионаты</h1>
+                      <div className="league-tabs">
+                        {leagues.map((l, i) => (
+                          <button
+                            className={league === i ? "active" : ""}
+                            key={l}
+                            onClick={() => setLeague(i)}
+                          >
+                            {l}
+                          </button>
+                        ))}
                       </div>
-                      <p className="muted">
-                        Квалификация ЛЧ: топ-8 Англии и топ-7 остальных лиг.
-                        Игровой отбор среди пяти чемпионатов. Нижних дивизионов
-                        нет.
-                      </p>
-                    </section>
+                      <section className="panel">
+                        <h3>{leagues[league]}</h3>
+                        <div className="table-wrap">
+                          <table>
+                            <thead>
+                              <tr>
+                                {[
+                                  "#",
+                                  "Клуб",
+                                  "И",
+                                  "В",
+                                  "Н",
+                                  "П",
+                                  "ЗМ",
+                                  "ПМ",
+                                  "РМ",
+                                  "О",
+                                ].map((x) => (
+                                  <th key={x}>{x}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {table(g, league).map((r, i) => (
+                                <tr
+                                  key={r.club.id}
+                                  className={
+                                    r.club.id === g.club ? "highlight" : ""
+                                  }
+                                >
+                                  <td>
+                                    <span
+                                      className={
+                                        i < (league === 0 ? 8 : 7)
+                                          ? "rank top"
+                                          : "rank"
+                                      }
+                                    >
+                                      {i + 1}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <span className="table-club">
+                                      <Photo
+                                        src={r.club.logo}
+                                        name={r.club.name}
+                                      />
+                                      {r.club.name}
+                                    </span>
+                                  </td>
+                                  <td>{r.played}</td>
+                                  <td>{r.w}</td>
+                                  <td>{r.d}</td>
+                                  <td>{r.loss}</td>
+                                  <td>{r.gf}</td>
+                                  <td>{r.ga}</td>
+                                  <td>{r.gf - r.ga}</td>
+                                  <td>
+                                    <b>{r.pts}</b>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <p className="muted">
+                          Квалификация ЛЧ: топ-8 Англии и топ-7 остальных лиг.
+                          Игровой отбор среди пяти чемпионатов. Нижних
+                          дивизионов нет.
+                        </p>
+                      </section>
+                    </CupHub>
                   </>
                 )}
                 {tab === "Статистика" && (
@@ -1277,85 +1300,100 @@ function App() {
                   </>
                 )}
                 {tab === "Настройки" && (
-                  <section className="panel">
-                    <h1>Твоя карьера под контролем</h1>
-                    <p>
-                      Автосохранение после каждого игрового действия. Текущий
-                      слот: {slot}.
-                    </p>
-                    <div className="actions">
-                      <button className="primary" onClick={() => persist(g)}>
-                        Сохранить вручную
-                      </button>
-                      <button
-                        onClick={() => {
-                          void exportCareer(g).catch(() =>
-                            setMsg("Экспорт не завершён. Повторите попытку."),
-                          );
-                        }}
-                      >
-                        Экспорт JSON
-                      </button>
-                      <label className="file">
-                        Импорт JSON
-                        <input
-                          type="file"
-                          accept="application/json"
-                          onChange={async (e) => {
-                            try {
-                              const x = JSON.parse(
-                                await e.target.files![0].text(),
-                              );
-                              if (!validateSave(x)) throw Error();
-                              setG(migrateGame(x));
-                              persist(x, true);
-                              setSelected(null);
-                            } catch {
-                              setMsg("Некорректный файл сохранения");
-                            }
+                  <>
+                    <DataImport act={act} />
+                    <section className="panel">
+                      <h1>Твоя карьера под контролем</h1>
+                      <p>
+                        Автосохранение после каждого игрового действия. Текущий
+                        слот: {slot}.
+                      </p>
+                      <div className="actions">
+                        <button className="primary" onClick={() => persist(g)}>
+                          Сохранить вручную
+                        </button>
+                        <button
+                          onClick={() => {
+                            void exportCareer(g).catch(() =>
+                              setMsg("Экспорт не завершён. Повторите попытку."),
+                            );
                           }}
-                        />
-                      </label>
-                    </div>
-                    <h3>Слоты карьеры</h3>
-                    {[1, 2, 3].map((s) => (
+                        >
+                          Экспорт JSON
+                        </button>
+                        <label className="file">
+                          Импорт JSON
+                          <input
+                            type="file"
+                            accept="application/json"
+                            onChange={async (e) => {
+                              try {
+                                const x = JSON.parse(
+                                  await e.target.files![0].text(),
+                                );
+                                if (!validateSave(x)) throw Error();
+                                setG(migrateGame(x));
+                                persist(x, true);
+                                setSelected(null);
+                              } catch {
+                                setMsg("Некорректный файл сохранения");
+                              }
+                            }}
+                          />
+                        </label>
+                      </div>
+                      <h3>Слоты карьеры</h3>
+                      {[1, 2, 3].map((s) => (
+                        <button
+                          className="slot"
+                          key={s}
+                          onClick={() => {
+                            setSlot(s);
+                            setG(read(s));
+                            setSelected(null);
+                            setTab("Главная");
+                            setMsg("");
+                          }}
+                        >
+                          Слот {s} ·{" "}
+                          {read(s)
+                            ? `${read(s)!.clubs[read(s)!.club].name} / ${read(s)!.season}`
+                            : "Новая карьера"}{" "}
+                          {slot === s ? "●" : ""}
+                        </button>
+                      ))}
+                      <p className="muted">
+                        Чтобы начать заново, выберите пустой слот. Импорт
+                        заменяет текущий слот. Перед импортом сохраните
+                        резервную копию.
+                      </p>
+                      <p className="muted">
+                        Фотографии футболистов временно отключены. Отдельная
+                        база изображений будет подключена позже. Эмблемы клубов
+                        доступны офлайн.
+                      </p>
                       <button
-                        className="slot"
-                        key={s}
-                        onClick={() => {
-                          setSlot(s);
-                          setG(read(s));
-                          setSelected(null);
-                          setTab("Главная");
-                          setMsg("");
-                        }}
+                        className="danger"
+                        onClick={() => setDeleting(slot)}
                       >
-                        Слот {s} ·{" "}
-                        {read(s)
-                          ? `${read(s)!.clubs[read(s)!.club].name} / ${read(s)!.season}`
-                          : "Новая карьера"}{" "}
-                        {slot === s ? "●" : ""}
+                        Удалить текущую карьеру
                       </button>
-                    ))}
-                    <p className="muted">
-                      Чтобы начать заново, выберите пустой слот. Импорт заменяет
-                      текущий слот. Перед импортом сохраните резервную копию.
-                    </p>
-                    <PhotoCredits />
-                    <h3>Редактируемая база</h3>
-                    <p className="muted">
-                      Экспортируйте JSON, измените названия, характеристики и
-                      бюджеты и импортируйте обратно. Не меняйте идентификаторы
-                      и связи. Игроки, рейтинги и финансы — модель симулятора, а
-                      не официальные данные.
-                    </p>
-                    <h3>Веб-обновление · Карьера и VAR</h3>
-                    <p className="muted">
-                      ЛЧ, награды, живые матчи и досье тренера доступны. Аренды,
-                      смена клуба и остальные еврокубки пока не реализованы.
-                      Игра работает в браузере и Android без регистрации.
-                    </p>
-                  </section>
+                      <h3>Редактируемая база</h3>
+                      <p className="muted">
+                        Экспортируйте JSON, измените названия, характеристики и
+                        бюджеты и импортируйте обратно. Не меняйте
+                        идентификаторы и связи. Рейтинги с указанным источником
+                        взяты из FC 26; остальные характеристики и финансы —
+                        модель симулятора.
+                      </p>
+                      <h3>Football Legacy 2.2</h3>
+                      <p className="muted">
+                        ЛЧ, ЛЕ, ЛК, Суперкубок, летние турниры сборных, аренды,
+                        переговоры, травмы по датам и награды доступны в сайте и
+                        APK 2.2. Смена клуба пока не реализована.
+                      </p>
+                    </section>
+                  </>
                 )}
               </>
             )}
@@ -1366,6 +1404,42 @@ function App() {
         </main>
       </div>
 
+      {deleting !== null && (
+        <div className="modal-backdrop">
+          <section
+            className="panel delete-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Удаление карьеры"
+          >
+            <h2>Удалить карьеру в слоте {deleting}?</h2>
+            <p>
+              Результаты, трансферы, награды и история этой карьеры будут
+              удалены с этого устройства. Другие слоты сохранятся. Перед
+              удалением можно экспортировать JSON.
+            </p>
+            <div className="actions">
+              <button onClick={() => setDeleting(null)}>Отмена</button>
+              <button
+                className="danger"
+                onClick={() => {
+                  deleteSlot(deleting);
+                  if (deleting === slot) {
+                    setG(null);
+                    setSelected(null);
+                    setTab("Главная");
+                    setDetail(null);
+                  }
+                  setDeleting(null);
+                  setMsg("Карьера удалена");
+                }}
+              >
+                Удалить навсегда
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
       {currentPlayer && g && (
         <div className="modal-backdrop" onClick={() => setSelected(null)}>
           <section className="modal panel" onClick={(e) => e.stopPropagation()}>
@@ -1411,7 +1485,10 @@ function App() {
             </p>
             <p>
               Форма {currentPlayer.fitness}% · Мораль {currentPlayer.morale}% ·
-              Травма: {currentPlayer.injury} тур.
+              Травма:{" "}
+              {currentPlayer.injuryDetail
+                ? `${currentPlayer.injuryDetail.kind} · до ${currentPlayer.injuryDetail.until}`
+                : `${currentPlayer.injury} тур.`}
             </p>
             <p>
               Матчи {currentPlayer.stats.apps} · Голы{" "}
@@ -1436,30 +1513,27 @@ function App() {
               {currentPlayer.source ?? "Сгенерированный выпускник академии"} ·
               Рейтинг, финансы и недостающий возраст — игровая модель.
             </p>
-            <details>
-              <summary>Изменить фотографию</summary>
-              <label>
-                HTTPS-ссылка
-                <input
-                  type="url"
-                  defaultValue={currentPlayer.photo ?? ""}
-                  key={currentPlayer.id}
-                  onBlur={(e) => {
-                    const url = e.target.value.trim();
-                    if (url && !url.startsWith("https://"))
-                      return setMsg("Используйте HTTPS-ссылку");
-                    act((x) => {
-                      x.players.find((p) => p.id === currentPlayer.id)!.photo =
-                        url || undefined;
-                    });
-                  }}
-                />
-              </label>
-              <p className="muted">
-                Для внешних фотографий требуется Интернет; недоступное фото
-                заменяется инициалами.
-              </p>
-            </details>
+            <p className="muted">
+              Фотографии игроков временно отключены до подключения отдельной
+              базы.
+            </p>
+            <TransferDeal
+              game={g}
+              player={currentPlayer}
+              fee={fee}
+              salary={wage}
+              act={act}
+            />
+            <p className="muted">
+              Стоимость:{" "}
+              {currentPlayer.valueSource
+                ? `Transfermarkt · ${currentPlayer.valueSource.date}`
+                : "игровая оценка"}{" "}
+              · OVR:{" "}
+              {currentPlayer.ratingSource
+                ? `${currentPlayer.ratingSource.edition ?? "EA FC"} · ${currentPlayer.ratingSource.date}`
+                : "игровая модель"}
+            </p>
             {currentPlayer.club !== g.club ? (
               <>
                 <div className="form-grid">
@@ -1482,14 +1556,6 @@ function App() {
                     />
                   </label>
                 </div>
-                <button
-                  className="primary wide"
-                  onClick={() =>
-                    act((x) => transfer(x, currentPlayer.id, x.club, fee, wage))
-                  }
-                >
-                  Предложить контракт
-                </button>
               </>
             ) : (
               <div className="actions">
@@ -1519,6 +1585,10 @@ function App() {
                       const p = x.players.find(
                         (p) => p.id === currentPlayer.id,
                       )!;
+                      if (x.loans?.some((l) => l.player === p.id))
+                        throw Error(
+                          "Продлить контракт арендованного игрока может только владелец",
+                        );
                       const cost = p.salary * 8;
                       if (x.clubs[x.club].budget < cost)
                         throw Error("Недостаточно средств на подписной бонус");
